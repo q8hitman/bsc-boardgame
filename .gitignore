@@ -1,0 +1,11 @@
+node_modules/
+dist/
+shots/
+*.log
+.claude/
+shots-mg/
+shots-fx/
+shots2/
+shots-specials/
+shots-phone/
+shots-race/
