@@ -44,3 +44,5 @@ button { font-family: inherit; cursor: pointer; }
 @keyframes slide-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes wiggle { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
 @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+.home-hint { font-size: 16px !important; opacity: .85; max-width: 420px; margin: -6px 0 6px !important; }
+.home-online { display: flex; flex-direction: column; gap: 14px; align-items: center; margin-top: 8px; }

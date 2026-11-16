@@ -45,7 +45,7 @@ export function cardHtml(c: Card, w: number, extra = "", attrs = "") {
 /** Back of a card (deck, other players' hands). */
 export function cardBack(w: number, extra = "", attrs = "") {
   return `<div class="kc back ${extra}" style="--cw:${w}px" ${attrs}><div class="kc-in">
-    <div class="kc-emb"><img src="/assets/cards/y.png" alt="" draggable="false"></div><div class="kc-logo">كواك!</div></div></div>`;
+    <div class="kc-emb"><img src="assets/cards/y.png" alt="" draggable="false"></div><div class="kc-logo">كواك!</div></div></div>`;
 }
 
 /** Big colour chip, used for "colour now: ..." and the colour picker. */

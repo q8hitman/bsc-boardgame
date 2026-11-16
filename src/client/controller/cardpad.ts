@@ -1,6 +1,6 @@
 import { canPlay, CARD_COLORS, CARD_KINDS, COLOR_IDS, isWild } from "../../shared/cards";
 import type { Card, CardColor, GameState, Player } from "../../shared/types";
-import { cardHtml, colorDot } from "../cards-ui";
+import { cardBack, cardHtml, colorDot } from "../cards-ui";
 import type { ClientSocket } from "../net";
 import { ar, esc, tokenImg } from "../net";
 
@@ -11,7 +11,8 @@ const sortHand = (h: Card[]) =>
   [...h].sort((a, b) => (a.color ? ORDER[a.color] : 9) - (b.color ? ORDER[b.color] : 9) || KORDER[a.kind] - KORDER[b.kind] || (a.n ?? 0) - (b.n ?? 0));
 
 /** Phone side of "كواك!": your hand, the card on the table, and the buttons. */
-export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => string) {
+/** `hideHand`: several people share one screen, so a hand is face down except on its owner's turn. */
+export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => string, hideHand = false) {
   let hand: Card[] = [];
   let st: GameState | null = null;
   let key = "";
@@ -103,7 +104,7 @@ export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => s
         <div class="cp-count">كروتك: ${ar(n)}</div>
         <div class="cp-hand ${mine ? "turn" : ""}" style="--step:${step}px">
           <div class="cp-row" style="width:${(n - 1) * step + W}px;--cw-h:${Math.round(W * 1.48)}px">
-            ${sorted.map((c, i) => `<button class="cp-card ${playable(c) ? "ok" : mine ? "no" : ""} ${t.drawn?.cardId === c.id ? "drawn" : ""}" data-id="${c.id}" style="right:${i * step}px">${cardHtml(c, W)}</button>`).join("")}
+            ${sorted.map((c, i) => `<button class="cp-card ${playable(c) ? "ok" : mine ? "no" : ""} ${t.drawn?.cardId === c.id ? "drawn" : ""}" data-id="${c.id}" style="right:${i * step}px">${hideHand && !mine ? cardBack(W) : cardHtml(c, W)}</button>`).join("")}
           </div>
         </div>
       </div>

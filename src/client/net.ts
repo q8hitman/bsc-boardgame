@@ -3,7 +3,13 @@ import type { ClientToServer, GameState, ServerToClient } from "../shared/types"
 
 export type ClientSocket = Socket<ServerToClient, ClientToServer>;
 
+/** One-device mode plugs an in-page server in here (see local-server.ts). */
+let localConnect: (() => ClientSocket) | null = null;
+export const setLocalConnect = (fn: () => ClientSocket) => (localConnect = fn);
+export const isLocal = () => !!localConnect;
+
 export function connect(): ClientSocket {
+  if (localConnect) return localConnect();
   return io({ transports: ["websocket", "polling"], reconnection: true, reconnectionDelay: 500 });
 }
 
@@ -29,6 +35,6 @@ export const ar = (n: number | string) => String(n).replace(/\d/g, (d) => "٠١�
 
 /** Cartoon icon rendered in Blender (public/assets/icons), used instead of emoji so it looks the same on every device. */
 export const icon = (name: string, px = 28) =>
-  `<img class="ic ic-${name}${px >= 56 ? " anim" : ""}" src="/assets/icons/${name}.png" alt="" style="height:${px}px;width:${px}px">`;
+  `<img class="ic ic-${name}${px >= 56 ? " anim" : ""}" src="assets/icons/${name}.png" alt="" style="height:${px}px;width:${px}px">`;
 export const tokenImg = (duck: number, px = 120) =>
-  `<img class="ic tok${px >= 56 ? " anim" : ""}" src="/assets/tokens/token${duck}.png" alt="" style="height:${px}px">`;
+  `<img class="ic tok${px >= 56 ? " anim" : ""}" src="assets/tokens/token${duck}.png" alt="" style="height:${px}px">`;

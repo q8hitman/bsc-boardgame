@@ -4,12 +4,12 @@ import { BOARDS, DUCKS, ITEMS, LANDMARKS, MAX_PLAYERS, MINIGAMES, STAR_COST, WHE
 import { CARD_GAME } from "../../shared/cards";
 import { isCards, isRace, ranked } from "../../shared/rules";
 import type { GameState, Player } from "../../shared/types";
-import { ar, Clock, connect, esc, icon, tokenImg } from "../net";
+import { ar, Clock, connect, esc, icon, isLocal, tokenImg } from "../net";
 import { initAudio, sfx } from "../sfx";
 import { BoardView, H, W } from "./board";
 import { CardTable } from "./table";
 
-const duckImg = (p: Player | { duck: number }) => `/assets/tokens/token${p.duck}.png`;
+const duckImg = (p: Player | { duck: number }) => `assets/tokens/token${p.duck}.png`;
 
 export async function startDisplay(root: HTMLElement) {
   document.body.classList.add("display");
@@ -29,12 +29,16 @@ export async function startDisplay(root: HTMLElement) {
     </div>`;
   const stage = root.querySelector<HTMLDivElement>("#stage")!;
   const $ = (id: string) => root.querySelector<HTMLDivElement>("#" + id)!;
+  // fits whatever box it lives in: the whole window, or a part of it in one-device mode
   const fit = () => {
-    const k = Math.min(innerWidth / W, innerHeight / H);
-    stage.style.transform = `translate(${(innerWidth - W * k) / 2}px, ${(innerHeight - H * k) / 2}px) scale(${k})`;
+    const w = root.clientWidth || innerWidth;
+    const h = root.clientHeight || innerHeight;
+    const k = Math.min(w / W, h / H);
+    stage.style.transform = `translate(${(w - W * k) / 2}px, ${(h - H * k) / 2}px) scale(${k})`;
   };
   fit();
   addEventListener("resize", fit);
+  new ResizeObserver(fit).observe(root);
   addEventListener("pointerdown", () => initAudio());
 
   await document.fonts.load("800 40px 'Baloo Bhaijaan 2'").catch(() => {});
@@ -59,14 +63,14 @@ export async function startDisplay(root: HTMLElement) {
   let st: GameState | null = null;
   let seen = -1;
   let lanBase = "";
-  fetch("/api/lan").then((r) => r.json()).then((d: { ips: string[] }) => {
+  if (!isLocal()) fetch("/api/lan").then((r) => r.json()).then((d: { ips: string[] }) => {
     const host = d.ips[0] ?? location.hostname;
     lanBase = `${location.protocol}//${host}${location.port ? ":" + location.port : ""}`;
     if (st) render(st, false);
   }).catch(() => (lanBase = location.origin));
 
   sock.on("connect", () => {
-    const saved = JSON.parse(sessionStorage.getItem("duck-screen") ?? "null");
+    const saved = isLocal() ? null : JSON.parse(sessionStorage.getItem("duck-screen") ?? "null");
     const create = () => sock.emit("screen:create", (res) => sessionStorage.setItem("duck-screen", JSON.stringify(res)));
     if (saved) sock.emit("screen:resume", saved, (ok) => !ok && create());
     else create();
@@ -102,7 +106,7 @@ export async function startDisplay(root: HTMLElement) {
     const b = $("banner");
     b.classList.remove("hidden");
     b.classList.toggle("with-piece", piece !== undefined);
-    b.innerHTML = `${piece !== undefined ? `<img class="bn-piece" src="/assets/tokens/token${piece}.png" alt="">` : ""}<div class="bn-text"><h2>${esc(title)}</h2>${text ? `<p>${esc(text)}</p>` : ""}<div id="timer" class="hidden"><i></i></div></div>`;
+    b.innerHTML = `${piece !== undefined ? `<img class="bn-piece" src="assets/tokens/token${piece}.png" alt="">` : ""}<div class="bn-text"><h2>${esc(title)}</h2>${text ? `<p>${esc(text)}</p>` : ""}<div id="timer" class="hidden"><i></i></div></div>`;
     b.style.animation = "none";
     void b.offsetWidth;
     b.style.animation = "";
@@ -127,7 +131,7 @@ export async function startDisplay(root: HTMLElement) {
   function photoStyle([cx, cy]: [number, number], size = 230, span = 300) {
     const k = size / span;
     const bw = BOARDS.island.width * k;
-    return `width:${size}px;height:${size}px;background-image:url(/${BOARDS.island.image});background-size:${bw}px auto;background-position:${-(cx * k - size / 2)}px ${-(cy * k - size / 2)}px`;
+    return `width:${size}px;height:${size}px;background-image:url(${BOARDS.island.image});background-size:${bw}px auto;background-position:${-(cx * k - size / 2)}px ${-(cy * k - size / 2)}px`;
   }
 
   let wheelAngle = 0;
@@ -448,7 +452,10 @@ export async function startDisplay(root: HTMLElement) {
     const lobby = $("lobby");
     if (!lobby.dataset.code || lobby.dataset.code !== s.code + url + s.boardId) {
       lobby.dataset.code = s.code + url + s.boardId;
-      lobby.innerHTML = `
+      lobby.innerHTML = isLocal()
+        ? `<div class="join"><h1>حفلة البط</h1><div class="sub">على هالجهاز</div><div class="bname">${esc(BOARDS[s.boardId]?.name ?? `${CARD_GAME.name} ${CARD_GAME.sub}`)}</div></div>
+           <div class="seats" id="seats"></div><div class="hint" id="hint"></div>`
+        : `
         <div class="join">
           <h1>حفلة البط</h1>
           <div class="sub">صوّر الكود من تلفونك وادخل</div>
@@ -474,7 +481,7 @@ export async function startDisplay(root: HTMLElement) {
       seats.querySelectorAll(".nm").forEach((el, i) => (el.textContent = s.players[i]?.name ?? ""));
     }
     lobby.querySelector("#hint")!.textContent =
-      (s.players.length < 2 ? "تحتاجون لاعبين على الأقل" : `${isCards(s) ? "أول واحد يخلص كروته يفوز" : `${ar(s.maxRounds)} جولات`} · المنظم يبدأ اللعبة من تلفونه`) +
+      (s.players.length < 2 ? "تحتاجون لاعبين على الأقل" : `${isCards(s) ? "أول واحد يخلص كروته يفوز" : `${ar(s.maxRounds)} جولات`} · ${isLocal() ? "ابدأ من لوحتك" : "المنظم يبدأ اللعبة من تلفونه"}`) +
       (s.organizer ? ` · المنظم: ${s.organizer.name} (ما يلعب)` : "");
   }
 
@@ -516,7 +523,7 @@ export async function startDisplay(root: HTMLElement) {
     const n = Math.min(8, Math.max(2, Math.ceil(amount / 2)));
     for (let i = 0; i < n; i++) {
       const b = document.createElement("img");
-      b.src = "/assets/icons/bread.png";
+      b.src = "assets/icons/bread.png";
       b.className = "fly";
       b.style.left = `${from.x + (Math.random() - 0.5) * 50}px`;
       b.style.top = `${from.y + (Math.random() - 0.5) * 30}px`;
@@ -769,7 +776,7 @@ export async function startDisplay(root: HTMLElement) {
           const r = rk.indexOf(p);
           return `<div class="pod p${r + 1}"><img src="${duckImg(p)}" alt=""><div class="nm">${esc(p.name)}</div><div class="sc">${isCards(s) ? (s.table?.counts[p.id] ? `باقي ${ar(s.table.counts[p.id])} كروت` : "خلّص كروته!") : isRace(s) ? `خانة ${ar(p.node + 1)}` : `${icon("star")}${ar(p.stars)} · ${icon("bread")}${ar(p.crumbs)}`}</div><div class="blk" style="height:${heights[r]}px;background:${colors[r]}">${ar(r + 1)}</div></div>`;
         })
-        .join("")}</div><p>المنظم يقدر يبدأ لعبة جديدة من تلفونه</p></div>`);
+        .join("")}</div><p>${isLocal() ? "تقدر تبدأ لعبة جديدة من لوحتك" : "المنظم يقدر يبدأ لعبة جديدة من تلفونه"}</p></div>`);
   }
 
   // reset one-shot screens when a new game starts

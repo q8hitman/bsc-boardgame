@@ -127,7 +127,7 @@ export class CardTable {
         const cls = [id === curId && s.phase !== "final" && s.phase !== "end" ? "cur" : "", !p.connected ? "off" : "", n === 1 ? "one" : "", s.winnerIds?.includes(id) ? "won" : ""].join(" ");
         return `<div class="tb-seat ${cls}" data-id="${id}" style="left:${x}px;top:${y}px">
           <div class="tb-fan">${backs}</div>
-          <div class="tb-av"><img src="/assets/tokens/token${p.duck}.png" alt=""></div>
+          <div class="tb-av"><img src="assets/tokens/token${p.duck}.png" alt=""></div>
           <div class="tb-name">${esc(p.name)}</div>
           <div class="tb-n">${n === 1 ? "كرت واحد!" : `${ar(n)} كروت`}</div>
         </div>`;

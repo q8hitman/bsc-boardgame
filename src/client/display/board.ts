@@ -34,8 +34,8 @@ class BoardScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image("map", "/" + this.board.image);
-    DUCKS.forEach((_, i) => this.load.image(`tok${i}`, `/assets/tokens/token${i}.png`));
+    this.load.image("map", this.board.image);
+    DUCKS.forEach((_, i) => this.load.image(`tok${i}`, `assets/tokens/token${i}.png`));
   }
 
   pos(node: number) {

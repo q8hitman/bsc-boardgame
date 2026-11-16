@@ -27,7 +27,7 @@ export const CARD_KINDS: Record<CardKind, { name: string; desc: string; label?: 
 export const COLOR_DUCK: Record<CardColor, string> = { y: "بسام", r: "كيراز", g: "أحمد", b: "عبدالله" };
 
 /** Art slot for a card face. */
-export const cardArt = (c: Card) => `/assets/cards/${c.kind === "num" ? c.color : c.kind}.png`;
+export const cardArt = (c: Card) => `assets/cards/${c.kind === "num" ? c.color : c.kind}.png`;
 
 export const HAND_SIZE = 7;
 export const KWAK_MS = 3200;

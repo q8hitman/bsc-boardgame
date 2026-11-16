@@ -6,14 +6,21 @@ import { createCardPad } from "./cardpad";
 import type { GameState, Player } from "../../shared/types";
 import { ar, Clock, connect, esc, icon, tokenImg } from "../net";
 
-const duckImg = (p: { duck: number }) => `/assets/tokens/token${p.duck}.png`;
+const duckImg = (p: { duck: number }) => `assets/tokens/token${p.duck}.png`;
 // timers instead of animation frames: they keep running when a phone dims or the tab is in the background
 const nextFrame = (fn: () => void) => window.setTimeout(fn, 40);
 const cancelFrame = (id: number) => clearTimeout(id);
 const buzz = (ms: number | number[]) => navigator.vibrate?.(ms);
 
-export function startController(root: HTMLElement, initialCode: string) {
-  document.body.classList.add("pad");
+/** One-device mode: this panel joins the in-page room by itself, and keys can stand in for taps. */
+export interface LocalPad {
+  name: string;
+  /** [tap, second button] keyboard keys, e.g. ["a", "s"] (minigames when two people share one keyboard) */
+  keys?: [string, string];
+}
+
+export function startController(root: HTMLElement, initialCode: string, local?: LocalPad) {
+  if (!local) document.body.classList.add("pad");
   root.innerHTML = `<div class="pad-wrap"><div class="pad-top hidden" id="top"></div><div class="pad-main" id="main"></div></div><button class="skip hidden" id="skip">تخطي ⏭</button>`;
   const wrap = root.querySelector<HTMLDivElement>(".pad-wrap")!;
   const top = root.querySelector<HTMLDivElement>("#top")!;
@@ -24,17 +31,17 @@ export function startController(root: HTMLElement, initialCode: string) {
   const clock = new Clock();
   let code = initialCode;
   let me = "";
-  const pad = createCardPad(sock, root.querySelector<HTMLDivElement>("#main")!, () => me);
+  const pad = createCardPad(sock, root.querySelector<HTMLDivElement>("#main")!, () => me, !!local?.keys);
   sock.on("hand", (h) => pad.setHand(h));
   let st: GameState | null = null;
   let key = "";
   let mgCleanup: (() => void) | null = null;
 
   const tokenKey = (c: string) => `duck-token-${c}`;
-  const savedName = () => localStorage.getItem("duck-name") ?? "";
+  const savedName = () => (local ? local.name : localStorage.getItem("duck-name") ?? "");
 
   function join(c: string, name: string, onErr?: (e: string) => void) {
-    const tok = localStorage.getItem(tokenKey(c)) ?? undefined;
+    const tok = local ? undefined : localStorage.getItem(tokenKey(c)) ?? undefined;
     sock.emit("player:join", { code: c, name, token: tok }, (res) => {
       if (!res.ok) {
         if (tok) localStorage.removeItem(tokenKey(c));
@@ -43,8 +50,10 @@ export function startController(root: HTMLElement, initialCode: string) {
       }
       code = c;
       me = res.playerId;
-      localStorage.setItem(tokenKey(c), res.token);
-      history.replaceState(null, "", `/?join=${c}`);
+      if (!local) {
+        localStorage.setItem(tokenKey(c), res.token);
+        history.replaceState(null, "", `?join=${c}`);
+      }
       key = "";
       if (latest && latest.code === c) {
         st = latest;
@@ -54,12 +63,30 @@ export function startController(root: HTMLElement, initialCode: string) {
   }
 
   sock.on("connect", () => {
+    if (local) {
+      if (!me) join(code, local.name);
+      return;
+    }
     if (code && localStorage.getItem(tokenKey(code))) join(code, savedName(), () => showJoin());
     else if (me) join(code, savedName());
     // otherwise the join form is already on screen: never reset it, the player may be typing
   });
   // show the form right away instead of waiting for the connection
-  if (!(code && localStorage.getItem(tokenKey(code)))) queueMicrotask(() => key !== "join" && !me && showJoin());
+  if (!local && !(code && localStorage.getItem(tokenKey(code)))) queueMicrotask(() => key !== "join" && !me && showJoin());
+  else if (local) main.innerHTML = `<h2>لحظة…</h2>`;
+
+  // keyboard stands in for the screen: tap = minigame zone / main button, second = the other choice
+  if (local?.keys) {
+    addEventListener("keydown", (e) => {
+      if (e.repeat || e.target instanceof HTMLInputElement) return;
+      const k = e.key.toLowerCase();
+      if (k === local.keys![0]) {
+        const z = main.querySelector<HTMLElement>(".mg-zone");
+        if (z) z.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+        else main.querySelector<HTMLButtonElement>("#ready, #roll, #push, #spin, #draw, .kw-btn")?.click();
+      } else if (k === local.keys![1]) main.querySelector<HTMLButtonElement>("#bank, #keep, #n, #leave")?.click();
+    });
+  }
   sock.on("disconnect", () => {
     if (me) {
       key = "";
@@ -82,7 +109,7 @@ export function startController(root: HTMLElement, initialCode: string) {
     key = "join";
     top.classList.add("hidden");
     main.innerHTML = `
-      <img class="duck" src="/assets/tokens/token0.png" alt="">
+      <img class="duck" src="assets/tokens/token0.png" alt="">
       <h1>حفلة البط</h1>
       <input class="code" id="c" maxlength="4" placeholder="رمز" value="${esc(code)}" autocomplete="off" />
       <input id="n" maxlength="14" placeholder="اسمك (اختياري)" value="${esc(savedName())}" />
@@ -164,7 +191,7 @@ export function startController(root: HTMLElement, initialCode: string) {
       case "lobby":
         return renderLobby(s, p);
       case "intro":
-        main.innerHTML = `<img class="duck" src="${duckImg(p)}" alt=""><h1>يلا نبدأ!</h1><p>طالع الشاشة الكبيرة</p>`;
+        main.innerHTML = `<img class="duck" src="${duckImg(p)}" alt=""><h1>يلا نبدأ!</h1><p>${local ? "طالع البورد" : "طالع الشاشة الكبيرة"}</p>`;
         return;
       case "turn":
         if (mine) {
@@ -279,7 +306,7 @@ export function startController(root: HTMLElement, initialCode: string) {
         return;
       }
       case "final":
-        main.innerHTML = `${icon("gift", 120)}<h1>الجوايز المخفية!</h1><p>طالع الشاشة</p>`;
+        main.innerHTML = `${icon("gift", 120)}<h1>الجوايز المخفية!</h1><p>${local ? "طالع البورد" : "طالع الشاشة"}</p>`;
         return;
       case "end": {
         const rank = ranked(s).findIndex((x) => x.id === me);
@@ -311,7 +338,7 @@ export function startController(root: HTMLElement, initialCode: string) {
         const owner = s.players.find((x) => x.duck === i);
         const mine = owner?.id === me;
         return `<button class="pick ${mine ? "mine" : ""} ${owner && !mine ? "taken" : ""}" data-piece="${i}" ${owner && !mine ? "disabled" : ""} style="--c:${d.color}">
-          <img src="/assets/tokens/token${i}.png" alt="${esc(d.name)}"><span>${esc(owner && !mine ? owner.name : d.name)}</span></button>`;
+          <img src="assets/tokens/token${i}.png" alt="${esc(d.name)}"><span>${esc(owner && !mine ? owner.name : d.name)}</span></button>`;
       }).join("")}</div>
       ${p.isHost
         ? `<p>انت المنظم</p>
@@ -323,7 +350,7 @@ export function startController(root: HTMLElement, initialCode: string) {
         : `<p>بانتظار المنظم يبدأ… (${ar(s.players.length)} لاعبين)</p>`}`;
     const nm = main.querySelector<HTMLInputElement>("#nm")!;
     nm.onchange = () => {
-      localStorage.setItem("duck-name", nm.value.trim());
+      if (!local) localStorage.setItem("duck-name", nm.value.trim());
       sock.emit("player:rename", nm.value);
     };
     main.querySelectorAll<HTMLButtonElement>("[data-piece]").forEach((b) =>
@@ -345,7 +372,7 @@ export function startController(root: HTMLElement, initialCode: string) {
   function boardPicker(s: GameState) {
     const games = [...Object.values(BOARDS).map((b) => ({ id: b.id, name: b.name })), { id: CARDS_ID, name: `${CARD_GAME.name} (كروت)` }];
     return `<p>اختار اللعبة</p><div class="bpick">${games
-      .map((b) => `<button class="${s.boardId === b.id ? "on" : ""}" data-board="${b.id}"><img src="/assets/thumbs/${b.id}.jpg" alt=""><span>${esc(b.name)}</span></button>`)
+      .map((b) => `<button class="${s.boardId === b.id ? "on" : ""}" data-board="${b.id}"><img src="assets/thumbs/${b.id}.jpg" alt=""><span>${esc(b.name)}</span></button>`)
       .join("")}</div>`;
   }
   function bindBoardPicker() {
@@ -461,7 +488,7 @@ export function startController(root: HTMLElement, initialCode: string) {
             submit(ms);
             buzz(60);
             cancelFrame(raf);
-            z.innerHTML = `<div class="huge">${(ms / 1000).toFixed(2)}</div><small>ثانية · طالع الشاشة</small>`;
+            z.innerHTML = `<div class="huge">${(ms / 1000).toFixed(2)}</div><small>ثانية · ${local ? "طالع البورد" : "طالع الشاشة"}</small>`;
           });
           break;
         }

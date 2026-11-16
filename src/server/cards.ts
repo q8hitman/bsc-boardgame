@@ -29,7 +29,7 @@ export class CardGame {
   private pile: Card[] = []; // full discard pile, top last
   private hands = new Map<string, Card[]>();
   private preCalled = new Set<string>(); // shouted "كواك!" before playing their second-to-last card
-  private kwakTimer: NodeJS.Timeout | null = null;
+  private kwakTimer: ReturnType<typeof setTimeout> | null = null;
   private over = false;
 
   constructor(private h: CardHost) {}

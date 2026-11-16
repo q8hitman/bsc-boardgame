@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // relative paths in the build, so it also runs from a sub-folder (GitHub Pages: /bsc-boardgame/)
+  base: command === "build" ? "./" : "/",
   server: {
     port: 5173,
     proxy: {
@@ -9,4 +11,4 @@ export default defineConfig({
     },
   },
   build: { outDir: "dist", chunkSizeWarningLimit: 2000 },
-});
+}));

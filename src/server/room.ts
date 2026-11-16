@@ -1,16 +1,15 @@
-import { randomBytes } from "node:crypto";
-import type { Server, Socket } from "socket.io";
 import {
   BOARDS, DUCKS, EVENTS, ITEMS, LANDMARKS, MAX_PLAYERS, MG_REWARDS, MINIGAMES, MINIGAME_ROTATION, SHOP_STOCK, START_CRUMBS, STAR_COST, WHEEL,
 } from "../shared/data";
 import { CardGame } from "./cards";
 import { CARDS_ID, isCards, isRace, PARTY_DEFAULT_ROUNDS, RACE_DEFAULT_ROUNDS, RACE_MG_EVERY, RACE_STEPS } from "../shared/rules";
+import type { GameIO, GameSocket } from "./wire";
 import type {
-  Anim, Board, BoardNode, ClientToServer, GameState, ItemId, MinigameId, Player, ServerToClient,
+  Anim, Board, BoardNode, GameState, ItemId, MinigameId, Player,
 } from "../shared/types";
 
-type IO = Server<ClientToServer, ServerToClient>;
-type Sock = Socket<ClientToServer, ServerToClient>;
+type IO = GameIO;
+type Sock = GameSocket;
 
 const HOP_MS = 330;
 const rand = (a: number, b: number) => a + Math.floor(Math.random() * (b - a + 1));
@@ -22,7 +21,8 @@ const shuffle = <T>(arr: T[]) => {
   }
   return arr;
 };
-const token = () => randomBytes(12).toString("hex");
+// works in Node and in the browser (one-device mode runs the room in the page)
+const token = () => Array.from(globalThis.crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
 const arDigits = (t: string) => t.replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[+d]).replace(/\./g, "٫");
 
 const BOT_NAMES = ["بطوط", "كواك", "ريشة", "زعنفة", "بقبق", "فطوم", "شلبي", "دودي"];
@@ -33,8 +33,8 @@ export class Room {
   screenToken = token();
   private tokens = new Map<string, string>(); // token -> playerId
   private sockets = new Map<string, string>(); // playerId -> socket id
-  private timer: NodeJS.Timeout | null = null;
-  private botTimers: NodeJS.Timeout[] = [];
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private botTimers: ReturnType<typeof setTimeout>[] = [];
   private moving: { pid: string; left: number; double: boolean } | null = null;
   private dice = 1;
   private extraRolls = 0;
