@@ -63,7 +63,11 @@ export async function startDisplay(root: HTMLElement) {
   let st: GameState | null = null;
   let seen = -1;
   let lanBase = "";
-  if (!isLocal()) fetch("/api/lan").then((r) => r.json()).then((d: { ips: string[] }) => {
+  // phones need an address they can reach: the page's own address, unless the screen runs on localhost
+  // (then use this computer's Wi-Fi address). Online (Render) it's simply the public address.
+  const onLocalhost = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  if (!isLocal() && !onLocalhost) lanBase = location.origin;
+  else if (!isLocal()) fetch("/api/lan").then((r) => r.json()).then((d: { ips: string[] }) => {
     const host = d.ips[0] ?? location.hostname;
     lanBase = `${location.protocol}//${host}${location.port ? ":" + location.port : ""}`;
     if (st) render(st, false);

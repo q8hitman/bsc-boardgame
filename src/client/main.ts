@@ -1,4 +1,5 @@
 import "./style.css";
+import { ONLINE_URL } from "./config";
 import { initAudio } from "./sfx";
 
 const app = document.getElementById("app")!;
@@ -83,7 +84,10 @@ function home() {
     })
     .catch(() => {
       const box = app.querySelector("#online");
-      if (box) box.innerHTML = `<p class="home-hint">اللعب بالبروجكتر والتلفونات يحتاج تشغّل سيرفر اللعبة على جهاز (الشرح في صفحة المشروع على GitHub)</p>`;
+      // no game server here (GitHub Pages): projector + phones runs on the online server
+      if (box)
+        box.innerHTML = `<a class="big-btn" href="${ONLINE_URL}">البروجكتر والتلفونات (أونلاين)</a>
+          <p class="home-hint">أول دخول بعد فترة ياخذ دقيقة لين يصحى السيرفر</p>`;
     });
 }
 

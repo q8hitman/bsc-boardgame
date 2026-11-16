@@ -1,0 +1,17 @@
+# Render blueprint: the game server online (projector + phones from any network).
+# Deploy: https://render.com/deploy?repo=https://github.com/q8hitman/bsc-boardgame
+# Every push to main redeploys it. Free plan: it sleeps after ~15 min without visitors,
+# and the first visit after that takes about a minute to wake it up.
+services:
+  - type: web
+    name: bsc-boardgame
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npx tsx src/server/index.ts --prod
+    healthCheckPath: /api/lan
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
