@@ -1,0 +1,111 @@
+/* ---------- "كواك!" playing cards. Everything is in em, 1em = card width / 10 */
+.kc {
+  --ink: #2b1b45;
+  position: relative; flex: none; width: var(--cw); height: calc(var(--cw) * 1.48); font-size: calc(var(--cw) / 10);
+  border-radius: 1.05em; background: linear-gradient(160deg, #fffaf0, #f3e7cf);
+  box-shadow: 0 .12em 0 rgba(43, 27, 69, .35), 0 .35em .9em rgba(10, 8, 30, .28), inset 0 0 0 .07em rgba(43, 27, 69, .25);
+  user-select: none; -webkit-user-select: none; direction: rtl;
+}
+.kc-in {
+  position: absolute; inset: .42em; border-radius: .72em; overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 36%, rgba(255, 255, 255, .55) 0, rgba(255, 255, 255, 0) 52%),
+    linear-gradient(175deg, var(--l, #ccc) 0%, var(--c, #888) 38%, var(--d, #333) 100%);
+  box-shadow: inset 0 0 0 .1em rgba(43, 27, 69, .3);
+}
+/* faint "cells under a microscope" texture */
+.kc-in::before {
+  content: ""; position: absolute; inset: 0; opacity: .22; pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 30%, transparent .7em, rgba(255, 255, 255, .9) .75em, transparent .85em),
+    radial-gradient(circle at 75% 60%, transparent 1.1em, rgba(255, 255, 255, .9) 1.15em, transparent 1.25em),
+    radial-gradient(circle at 40% 85%, transparent .5em, rgba(255, 255, 255, .9) .55em, transparent .65em);
+  background-size: 6em 6em, 7.5em 7.5em, 5em 5em;
+}
+/* the stage the duck stands on: a soft spotlight disc */
+.kc-cell { position: absolute; left: 0; right: 0; top: .5em; bottom: 3.9em; display: flex; align-items: flex-end; justify-content: center; }
+.kc-cell::before {
+  content: ""; position: absolute; left: 1em; right: 1em; bottom: -.15em; height: 1.5em; border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, .7), rgba(255, 255, 255, 0) 70%);
+}
+.kc-cell img { position: relative; max-width: 96%; max-height: 100%; object-fit: contain; filter: drop-shadow(0 .12em .1em rgba(30, 10, 40, .35)); pointer-events: none; }
+
+/* big centre mark: number / +2 / icon */
+.kc-big {
+  position: absolute; left: 0; right: 0; bottom: .15em; height: 3.9em; display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 800; line-height: 1;
+}
+.kc-big .kc-t { font-size: 3.9em; -webkit-text-stroke: .075em var(--ink); paint-order: stroke fill; text-shadow: 0 .05em 0 var(--ink), 0 .09em .08em rgba(0, 0, 0, .3); }
+.kc-big .kc-svg { width: 3.1em; height: 3.1em; filter: drop-shadow(0 .1em 0 rgba(0, 0, 0, .25)); }
+.kc.k-draw2 .kc-big .kc-t, .kc.k-wild4 .kc-big .kc-t { font-size: 3.3em; }
+/* action label: a little ribbon above the mark */
+.kc-lab {
+  position: absolute; left: 50%; bottom: 3.7em; transform: translateX(-50%); padding: .02em .7em .1em; border-radius: 1em;
+  background: var(--ink); color: #fff; font-weight: 800; font-size: 1.05em; white-space: nowrap; box-shadow: 0 .08em 0 rgba(0, 0, 0, .25);
+}
+.kc.k-draw2 .kc-lab, .kc.k-wild4 .kc-lab { display: none; }
+/* corner indexes */
+.kc-ix {
+  position: absolute; display: flex; align-items: center; justify-content: center; min-width: 1.9em; height: 1.9em; padding: 0 .2em;
+  border-radius: .7em; background: rgba(255, 255, 255, .92); color: var(--d, var(--ink)); font-weight: 800; line-height: 1;
+  box-shadow: inset 0 0 0 .08em rgba(43, 27, 69, .35);
+}
+.kc-ix .kc-t { font-size: 1.45em; }
+.kc-t { direction: ltr; unicode-bidi: isolate; }
+.kc-ix .kc-svg { width: 1.45em; height: 1.45em; }
+.kc-ix.tl { top: .35em; right: .35em; }
+.kc-ix.br { bottom: .35em; left: .35em; }
+.kc-ix .kc-svg g[stroke="#fff"] { stroke: currentColor; }
+
+/* wild cards: night lab, four-colour ring */
+.kc.wild .kc-in {
+  background:
+    radial-gradient(circle at 50% 38%, rgba(160, 120, 255, .45) 0, rgba(160, 120, 255, 0) 55%),
+    linear-gradient(175deg, #3b2a74 0%, #1d1440 55%, #0e0a24 100%);
+}
+.kc.wild .kc-in::after {
+  content: ""; position: absolute; inset: .5em; border-radius: .55em; pointer-events: none; padding: .16em;
+  background: conic-gradient(from 45deg, #FFC21A 0 25%, #F0453A 0 50%, #2F8CF0 0 75%, #2DBE6C 0 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; opacity: .9;
+}
+.kc.k-wild4 .kc-in { background: radial-gradient(circle at 50% 38%, rgba(255, 40, 60, .4) 0, rgba(255, 40, 60, 0) 55%), linear-gradient(175deg, #4a1530 0%, #1d0a1c 60%, #0b0610 100%); }
+.kc.wild .kc-ix { background: #1d1440; color: #fff; box-shadow: inset 0 0 0 .08em rgba(255, 255, 255, .35); }
+.kc.wild .kc-cell::before { background: radial-gradient(ellipse at center, rgba(190, 160, 255, .55), rgba(190, 160, 255, 0) 70%); }
+
+/* back */
+.kc.back .kc-in {
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 210, 63, .07) 0 .35em, transparent .35em .9em),
+    radial-gradient(circle at 50% 45%, #3b2a8a 0, #1b1446 60%, #0d0a26 100%);
+}
+.kc.back .kc-in::after { content: ""; position: absolute; inset: .35em; border-radius: .5em; border: .1em solid rgba(255, 210, 63, .55); }
+.kc-emb {
+  position: absolute; left: 50%; top: 43%; width: 6.6em; height: 6.6em; transform: translate(-50%, -50%); border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #ffe9a8, #ffd23f 55%, #c98a00); box-shadow: 0 0 0 .18em #2b1b45, 0 0 0 .38em #ffd23f, 0 .3em .6em rgba(0, 0, 0, .4);
+  overflow: hidden;
+}
+/* the duck's head and shoulders peeking into the badge */
+.kc-emb img { position: absolute; left: 50%; top: 8%; width: 165%; transform: translateX(-50%); }
+.kc-logo {
+  position: absolute; left: 0; right: 0; bottom: 1.15em; text-align: center; font-weight: 800; font-size: 2.2em; line-height: 1; color: #ffd23f;
+  -webkit-text-stroke: .08em #2b1b45; paint-order: stroke fill; text-shadow: 0 .06em 0 #2b1b45; transform: rotate(-6deg);
+}
+/* colour dot */
+.kc-dot { display: inline-block; border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--l), var(--c) 55%, var(--d)); box-shadow: inset 0 0 0 3px rgba(43, 27, 69, .5), 0 3px 0 rgba(0, 0, 0, .2); vertical-align: middle; }
+.kc-t.zero { transform: scale(1.7); display: inline-block; }
+
+/* court cards (all special cards): gold frame + name ribbon */
+.kc.court .kc-in { box-shadow: inset 0 0 0 .1em rgba(43, 27, 69, .35), inset 0 0 0 .32em rgba(255, 214, 90, .95), inset 0 0 0 .42em rgba(122, 74, 0, .6), inset 0 0 1.2em .3em rgba(255, 200, 60, .25); }
+.kc.court .kc-cell { top: .8em; bottom: 4.3em; }
+.kc-crown {
+  position: absolute; left: 50%; bottom: 3.55em; transform: translateX(-50%); z-index: 2; max-width: 8em; white-space: nowrap;
+  background: linear-gradient(180deg, #ffe9a0, #ffc93b 55%, #d99a10); color: #4a2a00; font-weight: 800; font-size: .92em; line-height: 1.5;
+  padding: 0 .7em; border-radius: .35em; box-shadow: 0 .1em 0 #7a4a00, inset 0 0 0 .07em #7a4a00;
+}
+.kc-crown::before, .kc-crown::after { content: ""; position: absolute; top: .25em; width: .6em; height: 1em; background: #d99a10; z-index: -1; }
+.kc-crown::before { right: -.45em; clip-path: polygon(0 0, 100% 0, 60% 50%, 100% 100%, 0 100%); }
+.kc-crown::after { left: -.45em; clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 40% 50%); }
+.kc.court .kc-ix.tl { top: .55em; right: .5em; }
+.kc.court .kc-ix.br { bottom: .5em; left: .5em; }
+.kc.court .kc-big { height: 3.5em; bottom: .3em; }
+.kc.court .kc-big .kc-svg { width: 2.8em; height: 2.8em; }

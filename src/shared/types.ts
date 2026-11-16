@@ -39,6 +39,34 @@ export interface Board {
   nodes: BoardNode[];
 }
 
+// ---- card game ("كواك!") ----
+export type CardColor = "y" | "r" | "g" | "b";
+export type CardKind = "num" | "skip" | "rev" | "draw2" | "wild" | "wild4" | "swap";
+export interface Card {
+  id: number;
+  kind: CardKind;
+  /** missing on wild cards (they take the colour the player picks) */
+  color?: CardColor;
+  n?: number;
+}
+/** Public part of the card table (hands are private and go to each phone with the "hand" event). */
+export interface CardTable {
+  /** last few cards of the discard pile, top card last */
+  discard: Card[];
+  color: CardColor;
+  dir: 1 | -1;
+  /** stacked +2 / +4 the next player has to take */
+  pendingDraw: number;
+  counts: Record<string, number>;
+  deckCount: number;
+  /** the player drew a card they can still play right away */
+  drawn?: { playerId: string; cardId: number };
+  /** someone just went down to one card: they must shout "كواك!" before anyone catches them */
+  kwak?: { playerId: string; until: number };
+  /** penalty points left in hands at the end (lower is better) */
+  points?: Record<string, number>;
+}
+
 export type ItemId = "doubleDice" | "tripleDice" | "shield" | "steal" | "starGate";
 
 export interface Player {
@@ -67,6 +95,7 @@ export type Phase =
   | "tile" // showing tile result
   | "shop" // current player is shopping
   | "wheel" // current player stops the wheel of fortune
+  | "cards" // card game: waiting for the current player
   | "mgIntro"
   | "mgPlay"
   | "mgResults"
@@ -85,6 +114,9 @@ export type Anim =
   | { kind: "jump"; playerId: string; from: number; to: number; jump: "snake" | "ladder" }
   | { kind: "win"; playerId: string }
   | { kind: "landmark"; playerId: string; landmark: LandmarkId; title: string; text: string; delta: number; to?: number }
+  | { kind: "card"; playerId: string; card: Card; color: CardColor; skipped?: string; swapWith?: string; reversed?: boolean }
+  | { kind: "draw"; playerId: string; n: number; why: "draw" | "stack" | "kwak" | "deal" }
+  | { kind: "kwak"; playerId: string; by?: string }
   | { kind: "banner"; title: string; text: string }
   | { kind: "none" };
 
@@ -128,6 +160,7 @@ export interface GameState {
   pendingShop?: { playerId: string; name: string; stock: { item: ItemId; price: number }[] };
   pendingWheel?: { playerId: string };
   minigame?: MinigameState;
+  table?: CardTable;
   winnerIds?: string[];
   bonuses?: { title: string; playerId: string }[];
   /** host who runs the game from their phone without playing (not in players) */
@@ -161,6 +194,10 @@ export interface ClientToServer {
   "player:target": (playerId: string) => void;
   "player:shopBuy": (item: ItemId | null) => void;
   "player:spin": () => void;
+  "card:play": (data: { id: number; color?: CardColor; target?: string }) => void;
+  "card:draw": () => void;
+  "card:keep": () => void;
+  "card:kwak": () => void;
   "mg:submit": (data: { score: number }) => void;
   "mg:progress": (value: number) => void;
   "mg:ready": () => void;
@@ -174,5 +211,6 @@ export interface ClientToServer {
 export interface ServerToClient {
   state: (s: GameState) => void;
   you: (playerId: string) => void;
+  hand: (cards: Card[]) => void;
   kicked: (reason: string) => void;
 }

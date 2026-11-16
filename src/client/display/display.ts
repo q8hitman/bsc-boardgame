@@ -1,11 +1,13 @@
 import "./display.css";
 import QRCode from "qrcode";
 import { BOARDS, DUCKS, ITEMS, LANDMARKS, MAX_PLAYERS, MINIGAMES, STAR_COST, WHEEL } from "../../shared/data";
-import { isRace, ranked } from "../../shared/rules";
+import { CARD_GAME } from "../../shared/cards";
+import { isCards, isRace, ranked } from "../../shared/rules";
 import type { GameState, Player } from "../../shared/types";
 import { ar, Clock, connect, esc, icon, tokenImg } from "../net";
 import { initAudio, sfx } from "../sfx";
 import { BoardView, H, W } from "./board";
+import { CardTable } from "./table";
 
 const duckImg = (p: Player | { duck: number }) => `/assets/tokens/token${p.duck}.png`;
 
@@ -14,6 +16,7 @@ export async function startDisplay(root: HTMLElement) {
   root.innerHTML = `
     <div id="stage">
       <div id="game"></div>
+      <div id="table" class="hidden"></div>
       <div id="ui">
         <div id="cards"></div>
         <div id="round" class="hidden"></div>
@@ -52,6 +55,7 @@ export async function startDisplay(root: HTMLElement) {
 
   const sock = connect();
   const clock = new Clock();
+  const table = new CardTable($("table"), clock);
   let st: GameState | null = null;
   let seen = -1;
   let lanBase = "";
@@ -70,11 +74,13 @@ export async function startDisplay(root: HTMLElement) {
   sock.on("state", (s) => {
     clock.update(s);
     $("connecting").classList.add("hidden");
-    if (s.boardId !== boardId || switching) {
+    // the card game has no map: keep whatever board scene is loaded behind it
+    const want = BOARDS[s.boardId] ? s.boardId : boardId;
+    if (want !== boardId || switching) {
       st = s;
       seen = s.seq;
-      if (!switching && s.boardId !== boardId)
-        switching = useBoard(s.boardId).then(() => {
+      if (!switching && want !== boardId)
+        switching = useBoard(want).then(() => {
           switching = null;
           if (st) render(st, false);
         });
@@ -225,6 +231,9 @@ export async function startDisplay(root: HTMLElement) {
   // ------------------------------------------------------------------ animations
   function playAnim(s: GameState, prev: GameState | null) {
     const a = s.anim;
+    if (isCards(s) && a.kind === "draw" && a.why === "deal")
+      banner("يلا نوزع الكروت!", "طابق اللون أو الرقم. أول واحد يخلص كروته يفوز، ولما يبقى لك كرت واحد صيح كواك!", 4300);
+    if (isCards(s) && table.anim(s)) return;
     switch (a.kind) {
       case "roll": {
         hideModal();
@@ -376,8 +385,13 @@ export async function startDisplay(root: HTMLElement) {
     // race boards keep the HUD in the side margins so the 10x10 grid is never covered
     $("stage").classList.toggle("race", isRace(s));
     const inGame = s.phase !== "lobby";
+    const cards = isCards(s);
+    $("game").classList.toggle("hidden", cards);
+    $("table").classList.toggle("hidden", !cards);
+    if (cards) table.render(s);
     // board pieces
-    if (inGame) {
+    if (cards) board.sync([], undefined);
+    else if (inGame) {
       board.sync(s.players, s.order[s.turnIdx]);
       board.setStar(s.starNode, false);
     } else board.sync([], undefined);
@@ -388,13 +402,13 @@ export async function startDisplay(root: HTMLElement) {
     if (!inGame) renderLobby(s);
 
     // cards + round
-    $("cards").classList.toggle("hidden", !inGame || s.phase === "end");
-    if (inGame) {
+    $("cards").classList.toggle("hidden", !inGame || s.phase === "end" || cards);
+    if (inGame && !cards) {
       renderCards(s);
       animateCrumbs(s);
     }
     const round = $("round");
-    round.classList.toggle("hidden", !inGame || s.round < 1 || s.phase === "end" || s.phase === "final");
+    round.classList.toggle("hidden", !inGame || s.round < 1 || s.phase === "end" || s.phase === "final" || cards);
     round.classList.toggle("last", s.round === s.maxRounds);
     round.innerHTML = `الجولة <b>${ar(s.round)}</b> من ${ar(s.maxRounds)}`;
 
@@ -420,7 +434,7 @@ export async function startDisplay(root: HTMLElement) {
       mgKey = "";
       hideModal();
     }
-    if (s.phase === "final" && !isRace(s)) renderFinal(s);
+    if (s.phase === "final" && !isRace(s) && !cards) renderFinal(s);
     renderSpecial(s);
     if (s.phase === "end") renderEnd(s);
     if (s.phase === "lobby") {
@@ -438,7 +452,7 @@ export async function startDisplay(root: HTMLElement) {
         <div class="join">
           <h1>حفلة البط</h1>
           <div class="sub">صوّر الكود من تلفونك وادخل</div>
-          <div class="bname">${esc(BOARDS[s.boardId]?.name ?? "")}</div>
+          <div class="bname">${esc(BOARDS[s.boardId]?.name ?? `${CARD_GAME.name} ${CARD_GAME.sub}`)}</div>
           <img class="qr" id="qr" alt="">
           <div class="code">${s.code}</div>
           <div class="url">${esc(url.replace(/^https?:\/\//, ""))}</div>
@@ -460,7 +474,7 @@ export async function startDisplay(root: HTMLElement) {
       seats.querySelectorAll(".nm").forEach((el, i) => (el.textContent = s.players[i]?.name ?? ""));
     }
     lobby.querySelector("#hint")!.textContent =
-      (s.players.length < 2 ? "تحتاجون لاعبين على الأقل" : `${ar(s.maxRounds)} جولات · المنظم يبدأ اللعبة من تلفونه`) +
+      (s.players.length < 2 ? "تحتاجون لاعبين على الأقل" : `${isCards(s) ? "أول واحد يخلص كروته يفوز" : `${ar(s.maxRounds)} جولات`} · المنظم يبدأ اللعبة من تلفونه`) +
       (s.organizer ? ` · المنظم: ${s.organizer.name} (ما يلعب)` : "");
   }
 
@@ -748,12 +762,12 @@ export async function startDisplay(root: HTMLElement) {
     const heights: Record<number, number> = { 0: 260, 1: 190, 2: 140 };
     const colors = ["#ffd23f", "#c9d3e0", "#e3a26b"];
     sfx.fanfare();
-    setTimeout(() => board.celebrate(rk[0].id), 400);
+    if (!isCards(s)) setTimeout(() => board.celebrate(rk[0].id), 400);
     modal(`<div class="panel"><div class="icon">${icon("trophy", 130)}</div><h1>${esc(rk[0].name)} فاز!</h1>
       <div class="podium">${order
         .map((p) => {
           const r = rk.indexOf(p);
-          return `<div class="pod p${r + 1}"><img src="${duckImg(p)}" alt=""><div class="nm">${esc(p.name)}</div><div class="sc">${isRace(s) ? `خانة ${ar(p.node + 1)}` : `${icon("star")}${ar(p.stars)} · ${icon("bread")}${ar(p.crumbs)}`}</div><div class="blk" style="height:${heights[r]}px;background:${colors[r]}">${ar(r + 1)}</div></div>`;
+          return `<div class="pod p${r + 1}"><img src="${duckImg(p)}" alt=""><div class="nm">${esc(p.name)}</div><div class="sc">${isCards(s) ? (s.table?.counts[p.id] ? `باقي ${ar(s.table.counts[p.id])} كروت` : "خلّص كروته!") : isRace(s) ? `خانة ${ar(p.node + 1)}` : `${icon("star")}${ar(p.stars)} · ${icon("bread")}${ar(p.crumbs)}`}</div><div class="blk" style="height:${heights[r]}px;background:${colors[r]}">${ar(r + 1)}</div></div>`;
         })
         .join("")}</div><p>المنظم يقدر يبدأ لعبة جديدة من تلفونه</p></div>`);
   }

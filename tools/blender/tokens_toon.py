@@ -14,6 +14,8 @@ argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 OUT = argv[0]
 SIZE = int(argv[1]) if len(argv) > 1 else 256
 ONLY = int(argv[2]) if len(argv) > 2 else -1
+# "card": no base, bigger framing, writes card{i}.png (character art for the card game)
+CARD = len(argv) > 3 and argv[3] == "card"
 
 COLORS = ["#FFD93B", "#FF5A4A", "#2FD08C", "#9B7BFF", "#3AA8FF", "#FF7DBE", "#FF9A1F", "#F2EEE4",
           "#A7AEBB", "#8BD346", "#00C2B8", "#B05BD8", "#7FE3FF", "#3D3D55", "#A0522D", "#2E5FA8", "#B3122E"]
@@ -436,7 +438,8 @@ for i, fig in enumerate(FIGS):
     T._mats.clear()
     T._outline = None
     T.reset(SIZE)
-    base(COLORS[i])
+    if not CARD:
+        base(COLORS[i])
     before = set(bpy.data.objects)
     fig()
     # turn characters with a face toward the camera (3/4 view) so hats, glasses and eyes read
@@ -448,6 +451,6 @@ for i, fig in enumerate(FIGS):
             if o is not pivot and o.parent is None:
                 o.parent = pivot
         pivot.rotation_euler = (0, 0, math.radians(turn))
-    T.camera(target=(0, 0, 0.62), el=34, az=30, dist=6.4, lens=85)
-    T.render(os.path.join(OUT, f"token{i}.png"))
+    T.camera(target=(0, 0, 0.62), el=34 if not CARD else 22, az=30, dist=6.4, lens=85)
+    T.render(os.path.join(OUT, f"{'card' if CARD else 'token'}{i}.png"))
     print("rendered", i, flush=True)

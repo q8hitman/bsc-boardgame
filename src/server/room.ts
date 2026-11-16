@@ -3,7 +3,8 @@ import type { Server, Socket } from "socket.io";
 import {
   BOARDS, DUCKS, EVENTS, ITEMS, LANDMARKS, MAX_PLAYERS, MG_REWARDS, MINIGAMES, MINIGAME_ROTATION, SHOP_STOCK, START_CRUMBS, STAR_COST, WHEEL,
 } from "../shared/data";
-import { isRace, PARTY_DEFAULT_ROUNDS, RACE_DEFAULT_ROUNDS, RACE_MG_EVERY, RACE_STEPS } from "../shared/rules";
+import { CardGame } from "./cards";
+import { CARDS_ID, isCards, isRace, PARTY_DEFAULT_ROUNDS, RACE_DEFAULT_ROUNDS, RACE_MG_EVERY, RACE_STEPS } from "../shared/rules";
 import type {
   Anim, Board, BoardNode, ClientToServer, GameState, ItemId, MinigameId, Player, ServerToClient,
 } from "../shared/types";
@@ -43,6 +44,7 @@ export class Room {
   private pushPots = new Map<string, { pot: number; done: boolean }>();
   private mgScores: Record<string, number> = {};
   lastActivity = Date.now();
+  private cards: CardGame;
 
   constructor(private io: IO, public code: string) {
     this.board = BOARDS.island;
@@ -60,6 +62,24 @@ export class Room {
       seq: 0,
       anim: { kind: "none" },
     };
+    const room = this;
+    this.cards = new CardGame({
+      get state() {
+        return room.state;
+      },
+      emit: (a) => this.emit(a),
+      schedule: (ms, fn) => this.schedule(ms, fn),
+      botLater: (ms, fn) => this.botLater(ms, fn),
+      clearBots: () => this.clearBots(),
+      setPhase: (ph, ms) => this.setPhase(ph, ms ?? null),
+      sendTo: (id, hand) => {
+        const sid = this.sockets.get(id);
+        if (sid) this.io.to(sid).emit("hand", hand);
+      },
+    });
+  }
+  get cardGame() {
+    return this.cards;
   }
 
   // ---------------------------------------------------------------- plumbing
@@ -96,6 +116,7 @@ export class Room {
     this.state.phaseEndsAt = timeoutMs ? Date.now() + timeoutMs : null;
   }
   dispose() {
+    this.cards?.stop();
     if (this.timer) clearTimeout(this.timer);
     this.clearBots();
   }
@@ -124,6 +145,7 @@ export class Room {
       sock.join(this.code);
       sock.data.playerId = pl.id;
       this.emit();
+      if (isCards(this.state)) setTimeout(() => this.cards.resend(pl.id), 50);
       return { ok: true as const, playerId: pl.id, token: tok! };
     }
     if (this.state.phase !== "lobby") return { ok: false as const, error: "اللعبة بدأت. انتظر الجولة الجاية" };
@@ -182,6 +204,8 @@ export class Room {
     this.emit();
     // if it was their decision, let the timeout / auto-play handle it quickly
     if (this.state.phase === "turn" && this.current?.id === playerId) this.schedule(2500, () => this.roll(playerId, true));
+    // card game: give a dropped phone a few seconds to come back before playing the turn for them
+    if (this.state.phase === "cards" && this.current?.id === playerId) this.botLater(6000, () => !pl.connected && this.current?.id === playerId && this.cards.skip());
   }
 
   isHost(playerId: string) {
@@ -247,6 +271,13 @@ export class Room {
 
   /** Host picks which board to play (lobby only). */
   setBoard(id: string) {
+    if (id === CARDS_ID) {
+      if (this.state.phase !== "lobby") return;
+      this.state.boardId = id;
+      this.state.starNode = -1;
+      this.emit();
+      return;
+    }
     const b = BOARDS[id];
     if (!b || this.state.phase !== "lobby" || this.state.boardId === id) return;
     this.board = b;
@@ -284,6 +315,9 @@ export class Room {
       pl.shielded = false;
       pl.stats = { minigameWins: 0, stolenFrom: 0, risks: 0 };
     }
+    s.bonuses = undefined;
+    if (isCards(s)) return this.cards.start();
+    s.table = undefined;
     s.order = shuffle(s.players.map((x) => x.id));
     s.round = 1;
     s.turnIdx = 0;
@@ -302,6 +336,7 @@ export class Room {
 
   restart() {
     this.dispose();
+    this.state.table = undefined;
     this.moving = null;
     this.state.phase = "lobby";
     this.state.phaseEndsAt = null;
@@ -315,7 +350,8 @@ export class Room {
   skip() {
     const s = this.state;
     const cur = this.current;
-    if (s.phase === "turn" && cur) this.roll(cur.id, true);
+    if (s.phase === "cards") this.cards.skip();
+    else if (s.phase === "turn" && cur) this.roll(cur.id, true);
     else if (s.phase === "choosePath" && s.pendingChoice) this.choose(s.pendingChoice.playerId, s.pendingChoice.options[0].to, true);
     else if (s.phase === "buyStar" && s.pendingBuy) this.buy(s.pendingBuy.playerId, false, true);
     else if (s.phase === "pickTarget" && s.pendingTarget) {

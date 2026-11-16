@@ -74,5 +74,18 @@ export const sfx = {
     tone(1100, 1.6, "sawtooth", 0, 0.16, 140);
     noise(1.2, 0.1, 0.12);
   },
+  card: () => {
+    noise(0.07, 0, 0.45);
+    tone(900, 0.05, "triangle", 0.02, 0.25, 500);
+  },
+  deal: () => {
+    for (let i = 0; i < 10; i++) noise(0.045, i * 0.07, 0.3);
+  },
+  quack: () => {
+    tone(520, 0.13, "sawtooth", 0, 0.22, 380);
+    tone(560, 0.17, "sawtooth", 0.16, 0.22, 360);
+  },
+  caught: () => [880, 660, 440].forEach((f, i) => tone(f, 0.14, "square", i * 0.1, 0.2)),
+  magic: () => [660, 880, 1100, 1320, 1760].forEach((f, i) => tone(f, 0.18, "sine", i * 0.05, 0.3)),
   event: () => [300, 450, 300, 600].forEach((f, i) => tone(f, 0.15, "sawtooth", i * 0.1, 0.18)),
 };
