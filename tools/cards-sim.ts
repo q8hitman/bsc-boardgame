@@ -1,4 +1,4 @@
-// Headless test of the card game "كواك!": a screen, 2 phone players (simple strategy over real sockets) and bots.
+// Headless test of the card game "كش!": a screen, 2 phone players (simple strategy over real sockets) and bots.
 // Checks: hands stay private and consistent, every played card was legal, the game reaches the end.
 // Usage: npx tsx tools/cards-sim.ts [bots] [serverUrl]
 import { io } from "socket.io-client";
@@ -30,7 +30,7 @@ screen.on("state", (s: GameState) => {
       plays++;
       // legality is checked against the table before this card landed
       if (last?.table && !canPlay(a.card, last.table)) fail(`illegal card ${JSON.stringify(a.card)} on ${JSON.stringify(last.table.discard.at(-1))} colour ${last.table.color} pending ${last.table.pendingDraw}`);
-      const extra = [a.skipped && "skip", a.reversed && "reverse", a.swapWith && "SWAP"].filter(Boolean).join(" ");
+      const extra = [a.skipped && "skip", a.reversed && "reverse"].filter(Boolean).join(" ");
       log(`  ${a.playerId.slice(0, 7)} plays ${a.card.kind}${a.card.n ?? ""}${a.card.color ?? ""} -> ${a.color} ${extra}`, JSON.stringify(s.table?.counts));
     }
     if (a.kind === "draw") log(`  ${a.playerId.slice(0, 7) || "deal"} draws ${a.n} (${a.why})`);

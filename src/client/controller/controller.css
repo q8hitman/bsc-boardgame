@@ -127,7 +127,7 @@ body.pad { overflow: auto; }
 .bpick img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 11px; display: block; }
 .bpick button.on { background: #FFD23F; box-shadow: 0 0 0 4px #fff, 0 0 0 7px var(--ink); }
 
-/* ---------- card game (كواك!) */
+/* ---------- card game (كش!) */
 .cp { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; flex: 1; }
 .cp-table { width: 100%; display: flex; gap: 14px; align-items: center; background: rgba(27, 20, 70, .88); color: #fff; border: 3px solid var(--ink); border-radius: 22px; padding: 12px; }
 .cp-top { position: relative; flex: none; }
@@ -170,3 +170,138 @@ body.pad { overflow: auto; }
 .cp-others b { background: var(--ink); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 14px; }
 .cp-others .cur { background: #fff; box-shadow: 0 0 0 3px #ffd23f; }
 .cp-others .one b { background: #d8344a; }
+
+/* ---------- waking the free online server */
+.wake {
+  position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 24px; text-align: center; color: #fff; background: radial-gradient(circle at 50% 30%, #4fc3f7, #1e7fc4 60%, #123a5c);
+}
+.wake .duck { width: 150px; animation: bob 1.5s ease-in-out infinite; }
+.wake h2 { margin: 0; font-size: 28px; text-shadow: 0 3px 0 #0b2540; }
+.wake p { margin: 0; font-size: 18px; opacity: .9; }
+
+/* ---------- phone room: share the link */
+.share {
+  width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: rgba(255, 255, 255, .9); border: 4px solid var(--ink); border-radius: 22px; padding: 10px 12px 12px;
+}
+.sh-code { font-size: 44px; font-weight: 800; letter-spacing: 10px; direction: ltr; line-height: 1.1; }
+.sh-row { display: flex; gap: 8px; width: 100%; align-items: stretch; }
+.sh-row .big-btn { flex: 1; font-size: 22px; padding: 10px 8px; }
+.sh-row .small-btn { margin: 0 0 6px; font-size: 18px; }
+.sh-qr { width: 180px; height: 180px; border-radius: 12px; image-rendering: pixelated; }
+
+/* ---------- phone room: the whole game (view) above the player's pad (side).
+   Portrait: view on top, pad underneath. Landscape: pad is a column on the right, the board gets the rest. */
+body.ph-on { overflow: hidden; }
+/* outside a phone room the side wrapper is invisible to layout (the pad fills its page / panel as before) */
+:not(.ph) > .ph-side { display: contents; }
+.ph { position: fixed; inset: 0; display: flex; flex-direction: column; background: #0b2540; overflow: hidden; }
+.ph > .ph-view { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; overflow: hidden; }
+.ph > .ph-side { position: relative; flex: 0 0 auto; max-height: 46vh; max-height: 46dvh; overflow: auto; overscroll-behavior: contain; }
+.ph.land { flex-direction: row-reverse; }
+.ph.land > .ph-side { width: clamp(250px, 34vw, 320px); max-height: none; }
+.ph .pad-wrap { min-height: 0; padding: 8px 12px max(10px, env(safe-area-inset-bottom)); border-top: 4px solid var(--ink); }
+.ph.land .pad-wrap { min-height: 100%; border-top: 0; border-inline-end: 4px solid var(--ink); padding-top: max(10px, env(safe-area-inset-top)); }
+.ph .pad-top { display: none !important; }
+.ph .pad-main { gap: 8px; padding: 2px 0; }
+.ph .pad-main h1 { font-size: 24px; }
+.ph .pad-main h2 { font-size: 19px; }
+.ph .pad-main p { font-size: 16px; }
+.ph .pad-main .duck { width: 70px; }
+.ph .pad-main > .ic, .ph .pad-main > .badge.big { width: 64px !important; height: 64px !important; font-size: 34px; }
+.ph .roll { width: 124px; height: 124px; font-size: 24px; border-width: 4px; box-shadow: 0 6px 0 var(--ink); }
+.ph .roll span .ic { width: 54px !important; height: 54px !important; }
+.ph .item-btn { min-width: 0; font-size: 14px; padding: 4px; }
+.ph .item-btn b .ic { width: 30px !important; height: 30px !important; }
+.ph .split .big-btn { font-size: 19px; padding: 10px 6px; }
+.ph .big-btn { font-size: 20px; padding: 10px 18px; }
+.ph .targets { gap: 6px; }
+.ph .target { font-size: 15px; padding: 4px; }
+.ph .target img { width: 44px; }
+.ph .mini-wheel { width: 110px; height: 110px; margin: 0 auto; border-width: 4px; }
+.ph .shop .ware { padding: 4px 8px; }
+.ph .mg-zone { min-height: 140px; font-size: 24px; border-width: 4px; border-radius: 22px; }
+.ph .mg-zone .huge { font-size: 64px; }
+.ph .mg-zone .ic { width: 72px !important; height: 72px !important; }
+.ph .mg-zone small { font-size: 15px; }
+.ph .count-big { font-size: 80px; }
+.ph.land .mg-zone { min-height: 200px; }
+/* not your turn: one slim row so the board gets the screen */
+.ph .wait { display: flex; align-items: center; justify-content: center; gap: 10px; text-align: start; }
+.ph .wait .duck { width: 48px; flex: none; }
+.ph .wait h2 { font-size: 19px; line-height: 1.2; }
+.ph .wait p { font-size: 13px !important; }
+.ph .wait p .ic { width: 20px !important; height: 20px !important; }
+.ph .skip { position: fixed; top: calc(env(safe-area-inset-top) + 52px); right: 8px; left: auto; bottom: auto; z-index: 30; }
+.ph.land .skip { right: auto; left: 8px; top: 8px; }
+
+/* card game: the felt runs from the table into the pad (portrait), or the hand lies over the table (landscape) */
+.ph.cards > .ph-side { max-height: 48vh; max-height: 48dvh; }
+.ph.cards .pad-wrap { background: radial-gradient(ellipse at 50% 0%, #2a1f63, #1a1446 70%, #0b0a24); border-top: 0; padding-top: 2px; }
+.ph-cp { gap: 4px; flex: none; }
+.ph-st { margin: 0; font-size: 18px !important; line-height: 1.25; color: #fff; text-shadow: 0 2px 0 rgba(0, 0, 0, .5); text-align: center; }
+.ph-st.mine { color: #ffd23f; }
+.ph-hand { width: 100%; margin: 0; padding: 22px 0 8px; overflow: visible; direction: ltr; }
+.ph-hand .cp-card { transform: translateY(var(--y)) rotate(var(--r)); transform-origin: 50% 110%; }
+.ph-hand.turn .cp-card.ok { transform: translateY(calc(var(--y) - 16px)) rotate(var(--r)); }
+.ph-hand.turn .cp-card.no { filter: brightness(.6) saturate(.75); }
+.ph-btns { display: flex; gap: 12px; width: 100%; max-width: 440px; }
+.ph-btns button {
+  flex: 1; min-width: 0; height: 56px; font: inherit; font-weight: 800; font-size: 22px; color: var(--ink); background: #ffd23f;
+  border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); transition: transform .08s, box-shadow .08s;
+}
+.ph-btns button:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--ink); }
+.ph-btns .ph-d.red { background: #ff8a8a; }
+.ph-btns .ph-d.alt { background: #fff; }
+.ph-btns .ph-k { background: #e8493d; color: #fff; font-size: 26px; }
+.ph-btns .ph-k.me { background: #ffd23f; color: var(--ink); animation: pulse .6s infinite; }
+.ph-btns .ph-k.catch { animation: pulse .6s infinite; }
+.ph-btns .ph-k.done { background: #6ee39a; color: var(--ink); }
+.ph-btns .off { opacity: .45; filter: saturate(.5); box-shadow: 0 3px 0 var(--ink); }
+.ph.cards.land > .ph-side { position: absolute; left: 0; right: 0; bottom: 0; width: auto; max-height: none; overflow: visible; pointer-events: none; }
+.ph.cards.land .pad-wrap { background: none; border: 0; min-height: 0; padding: 0 12px max(6px, env(safe-area-inset-bottom)); }
+.ph.cards.land .pad-main { padding: 0; }
+.ph.cards.land .ph-cp { pointer-events: auto; width: 100%; padding-inline-start: 140px; }
+.ph.cards.land .cp-sheet { pointer-events: auto; }
+.ph.cards.land .ph-st { font-size: 15px !important; }
+.ph.cards.land .ph-hand { padding: 16px 0 10px; }
+.ph.cards.land .ph-btns { position: absolute; right: 12px; bottom: max(10px, env(safe-area-inset-bottom)); flex-direction: column; width: 124px; gap: 10px; }
+.ph.cards.land .ph-btns button { height: 50px; font-size: 19px; }
+.ph.cards.land .ph-btns .ph-k { font-size: 23px; }
+
+.seat-note { font-size: 15px !important; font-weight: 700; background: rgba(255, 255, 255, .7); border-radius: 12px; padding: 3px 12px; max-width: 360px; }
+.host-tools button:disabled { opacity: .4; }
+.bpick button:disabled { opacity: .45; filter: grayscale(.7); }
+/* landscape phone: the colour choice in one row so the sheet fits the short screen */
+.ph.land .cp-sheet-in { padding: 10px 16px max(12px, env(safe-area-inset-bottom)); gap: 8px; }
+.ph.land .cp-sheet-in h2 { font-size: 19px; }
+.ph.land .cp-colors { grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 640px; gap: 10px; }
+.ph.land .cp-colors button { padding: 8px 4px; }
+.ph.land .cp-colors .kc-dot { width: 40px !important; height: 40px !important; }
+
+/* ---------- bowling / golf pad */
+.sp-line { width: 100%; max-width: 440px; display: flex; flex-direction: column; align-items: center; gap: 2px; background: rgba(255, 255, 255, .85); border: 3px solid var(--ink); border-radius: 16px; padding: 6px 12px; }
+.sp-line b { font-size: 20px; line-height: 1.2; }
+.sp-line span { font-size: 15px; font-weight: 700; opacity: .75; }
+.sp-line.go { background: #ffd23f; animation: pulse 1.2s infinite; }
+.sp-box { position: relative; width: 100%; flex: 1; min-height: 360px; border: 4px solid var(--ink); border-radius: 22px; overflow: hidden; background: #0b2540; touch-action: none; }
+.ph.sport > .ph-side { max-height: 96px; }
+.ph.sport .pad-wrap { padding-top: 6px; }
+.ph.sport.land > .ph-side { width: clamp(200px, 26vw, 260px); max-height: none; }
+.cpick { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 380px; }
+.cpick button { font: inherit; font-weight: 800; font-size: 16px; border: 3px solid var(--ink); border-radius: 14px; background: #fff; padding: 4px 14px; }
+.cpick button.on { background: #ffd23f; }
+
+/* ---------- lobby: your record against the people in the room */
+.rivals { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 6px; background: #2b1b45; color: #fff; border-radius: 20px; padding: 10px 12px 12px; box-shadow: 0 5px 0 rgba(0, 0, 0, .25); }
+.rivals h3 { margin: 0 0 2px; font-size: 17px; color: #ffd23f; }
+.rv { display: grid; grid-template-columns: 34px 1fr auto auto; align-items: center; gap: 8px; background: rgba(255, 255, 255, .08); border-radius: 14px; padding: 3px 10px 3px 6px; }
+.rv-nm { font-weight: 800; font-size: 17px; text-align: start; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv small { font-size: 12px; opacity: .7; }
+.rv-score { font-size: 20px; direction: rtl; }
+.rv-score i { font-style: normal; }
+.rv-score i:first-child { color: #7cf0a0; }
+.rv-score i:last-child { color: #ff8a8a; }
+.rv-new { font-size: 13px; color: #ffd23f; }
+.bpick button small { display: block; font-size: 12px; opacity: .7; font-weight: 700; }

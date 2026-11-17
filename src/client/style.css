@@ -47,3 +47,8 @@ button { font-family: inherit; cursor: pointer; }
 .home-hint { font-size: 16px !important; opacity: .85; max-width: 420px; margin: -6px 0 6px !important; }
 .home-online { display: flex; flex-direction: column; gap: 14px; align-items: center; margin-top: 8px; }
 a.big-btn { text-decoration: none; display: inline-block; text-align: center; }
+.home .big-btn { width: min(340px, 100%); min-width: 0; }
+.link-btn {
+  margin-top: 6px; font: inherit; font-size: 17px; font-weight: 800; color: #fff; background: rgba(11, 37, 64, .35);
+  border: 2px solid rgba(255, 255, 255, .55); border-radius: 14px; padding: 6px 18px;
+}

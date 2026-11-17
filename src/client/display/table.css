@@ -33,7 +33,7 @@
   background: radial-gradient(circle, color-mix(in srgb, var(--g, #fff) 55%, transparent) 0%, transparent 65%); transition: background .6s; animation: tb-breathe 2.4s ease-in-out infinite;
 }
 @keyframes tb-breathe { 50% { opacity: .65; } }
-.tb-deck, .tb-pile { position: absolute; width: 176px; height: 260px; transform: translate(-50%, -50%); }
+.tb-deck, .tb-pile { position: absolute; width: 176px; height: 232px; transform: translate(-50%, -50%); }
 .tb-deck { left: 825px; top: 510px; }
 .tb-deck .kc { position: absolute; left: 0; top: 0; }
 .tb-pile { left: 1075px; top: 510px; }
@@ -93,3 +93,52 @@
 .tb-bubble::after { content: ""; position: absolute; left: 50%; bottom: -20px; width: 26px; height: 26px; background: var(--b); border-right: 5px solid #120d33; border-bottom: 5px solid #120d33; transform: translateX(-50%) rotate(45deg); }
 @keyframes tb-bubble { 0% { transform: translate(-50%, -50%) scale(.2) rotate(-12deg); opacity: 0; } 14% { transform: translate(-50%, -50%) scale(1.15) rotate(3deg); opacity: 1; } 24% { transform: translate(-50%, -50%) scale(1) rotate(0); } 80% { opacity: 1; } 100% { transform: translate(-50%, -80%); opacity: 0; } }
 #table.idle .tb-dir, #table.idle .tb-glow { display: none; }
+
+/* ---------- "كش ملك!": the winning shot (big screen and phones) */
+.tb-king { position: absolute; inset: 0; display: grid; place-items: center; z-index: 9; background: radial-gradient(ellipse at 50% 50%, rgba(255, 210, 63, .28), rgba(11, 10, 36, .55) 70%); animation: tb-king-bg 2.7s ease-out forwards; }
+.tb-king-in { display: flex; flex-direction: column; align-items: center; animation: tb-king 2.7s cubic-bezier(.2, 1.4, .4, 1) forwards; }
+.tb-king img { width: 260px; filter: drop-shadow(0 10px 0 rgba(0, 0, 0, .35)); animation: tb-bob 1s ease-in-out infinite; }
+.tb-king b {
+  margin-top: -20px; font-size: 190px; line-height: 1; font-weight: 800; white-space: nowrap; color: #ffd23f;
+  background: linear-gradient(180deg, #fff6c2 0%, #ffd23f 45%, #e09a14 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 8px #120d33; paint-order: stroke fill; filter: drop-shadow(0 10px 0 rgba(0, 0, 0, .45)) drop-shadow(0 0 40px rgba(255, 210, 63, .7));
+}
+.tb-king span { margin-top: 6px; font-size: 54px; font-weight: 800; color: #fff; background: #120d33; border: 4px solid #ffd23f; border-radius: 22px; padding: 0 24px; }
+@keyframes tb-king { 0% { transform: scale(.2) rotate(-14deg); opacity: 0; } 14% { transform: scale(1.12) rotate(3deg); opacity: 1; } 22% { transform: scale(1) rotate(0); } 85% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.06); } }
+@keyframes tb-king-bg { 0%, 85% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ---------- phone: the table fills the view box; positions come from CardTable.layout() */
+#table.phone .tb-ring { top: auto; box-shadow: 0 0 0 6px #120d33, 0 0 0 8px rgba(255, 210, 63, .55), 0 0 0 13px #120d33, 0 14px 40px rgba(0, 0, 0, .6), inset 0 0 60px rgba(0, 0, 0, .45); }
+#table.phone .tb-mark { transform: translate(-50%, -50%) rotate(-6deg); }
+#table.phone .tb-dir path { stroke-width: 9; }
+#table.phone .tb-deck, #table.phone .tb-pile { transform: translate(-50%, -50%); }
+#table.phone .tb-pick { inset: -5px; border-radius: 12px; box-shadow: 0 0 0 4px var(--g), 0 0 18px 4px var(--g); }
+#table.phone .tb-info { gap: 4px; }
+/* the pad underneath already says whose turn it is */
+#table.phone .tb-turn { display: none; }
+#table.phone .tb-col { font-size: 14px; gap: 6px; padding: 2px 12px 2px 6px; }
+#table.phone .tb-timer { width: 120px; height: 5px; }
+#table.phone.land .tb-info { align-items: center; }
+#table.phone .tb-pend { left: var(--px); top: var(--py); font-size: 15px; border-width: 2px; border-radius: 12px; padding: 0 10px; max-width: 200px; }
+#table.phone .tb-seat { width: 84px; transform: translate(-50%, -50%) scale(var(--seat-k, 1)); }
+#table.phone .tb-fan { height: 34px; margin-bottom: -8px; }
+#table.phone .tb-mini { transform-origin: 50% 170%; }
+#table.phone .tb-av { width: 54px; height: 54px; border-width: 3px; box-shadow: 0 3px 0 rgba(0, 0, 0, .35); }
+#table.phone .tb-av img { width: 48px; bottom: -2px; }
+#table.phone .tb-name { margin-top: -8px; font-size: 13px; border-width: 2px; border-radius: 9px; padding: 0 7px; max-width: 84px; }
+#table.phone .tb-n { position: absolute; top: 28px; left: 4px; margin: 0; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; font-size: 13px; line-height: 22px; text-align: center; color: #fff; background: #2b1b45; box-shadow: 0 0 0 2px #ffd23f; z-index: 3; }
+#table.phone .tb-seat.one .tb-n { background: #e8493d; color: #fff; }
+#table.phone .tb-seat.cur .tb-av { box-shadow: 0 0 0 3px rgba(255, 210, 63, .6), 0 0 18px 6px rgba(255, 210, 63, .6); }
+#table.phone.land .tb-seat { width: 76px; }
+#table.phone.land .tb-av { width: 48px; height: 48px; }
+#table.phone.land .tb-av img { width: 42px; }
+#table.phone .tb-bubble { font-size: 24px; border-width: 3px; border-radius: 16px; padding: 0 14px 2px; box-shadow: 0 4px 0 rgba(0, 0, 0, .35); }
+#table.phone .tb-bubble::after { width: 12px; height: 12px; bottom: -9px; border-width: 3px; }
+#table.phone .tb-stamp svg { width: 64px; height: 64px; }
+#table.phone .tb-stamp b { font-size: 14px; border-width: 2px; border-radius: 8px; padding: 0 8px; margin-top: -4px; }
+#table.phone .tb-wave::before { width: 140px; height: 140px; }
+#table.phone .tb-wave span { font-size: 30px; -webkit-text-stroke: 3px #120d33; }
+#table.phone .tb-puff { border-width: 3px; }
+#table.phone .tb-king img { width: 120px; }
+#table.phone .tb-king b { margin-top: -8px; font-size: clamp(54px, 15vw, 96px); -webkit-text-stroke: 4px #120d33; filter: drop-shadow(0 5px 0 rgba(0, 0, 0, .45)) drop-shadow(0 0 18px rgba(255, 210, 63, .7)); }
+#table.phone .tb-king span { font-size: 22px; border-width: 3px; border-radius: 12px; padding: 0 14px; }

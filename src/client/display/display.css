@@ -285,3 +285,6 @@ body.display { background: #0b2540; }
 #stage.race .die3d .f4 { transform: rotateX(-90deg) translateZ(75px); }
 #stage.race .die3d .face { padding: 15px; }
 @keyframes slide-in-r { from { transform: translateX(60px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- bowling / golf: the sport view fills the stage */
+#sport { position: absolute; inset: 0; overflow: hidden; }

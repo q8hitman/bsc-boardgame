@@ -12,11 +12,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/three": "0.170.0",
     "express": "^4.21.2",
     "phaser": "^3.88.2",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1"
+    "socket.io-client": "^4.8.1",
+    "three": "0.170.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

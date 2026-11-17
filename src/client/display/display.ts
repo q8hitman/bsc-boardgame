@@ -1,22 +1,42 @@
 import "./display.css";
+import "./phone.css";
 import QRCode from "qrcode";
 import { BOARDS, DUCKS, ITEMS, LANDMARKS, MAX_PLAYERS, MINIGAMES, STAR_COST, WHEEL } from "../../shared/data";
 import { CARD_GAME } from "../../shared/cards";
-import { isCards, isRace, ranked } from "../../shared/rules";
+import { isCards, isRace, isSport, ranked } from "../../shared/rules";
+import { gameName } from "../../shared/catalog";
+import type { Shot, SportId } from "../../shared/sports/types";
+import { loadSportView, type SportView } from "../sports/view";
+import { placeholderView } from "../sports/placeholder";
 import type { GameState, Player } from "../../shared/types";
-import { ar, Clock, connect, esc, icon, isLocal, tokenImg } from "../net";
+import { ar, Clock, connect, esc, icon, isLocal, joinUrl, tokenImg } from "../net";
 import { initAudio, sfx } from "../sfx";
 import { BoardView, H, W } from "./board";
 import { CardTable } from "./table";
 
 const duckImg = (p: Player | { duck: number }) => `assets/tokens/token${p.duck}.png`;
 
-export async function startDisplay(root: HTMLElement) {
-  document.body.classList.add("display");
+/** Phone mode: the whole game inside a player's phone (no big screen in the room). The page that hosts it feeds
+ *  every state in, so it shares the player's own connection instead of joining as a screen. */
+export interface DisplayOpts {
+  phone?: boolean;
+  /** this phone's player (the card table keeps their seat at the bottom) */
+  me?: () => string;
+}
+export interface DisplayHandle {
+  state(s: GameState): void;
+  /** bowling / golf on a phone: let this player shoot by dragging on the view (null = not now) */
+  sportInput(cb: ((shot: Shot) => void) | null): void;
+}
+
+export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): Promise<DisplayHandle> {
+  const phone = !!opts.phone;
+  if (!phone) document.body.classList.add("display");
   root.innerHTML = `
     <div id="stage">
       <div id="game"></div>
       <div id="table" class="hidden"></div>
+      <div id="sport" class="hidden"></div>
       <div id="ui">
         <div id="cards"></div>
         <div id="round" class="hidden"></div>
@@ -29,10 +49,19 @@ export async function startDisplay(root: HTMLElement) {
     </div>`;
   const stage = root.querySelector<HTMLDivElement>("#stage")!;
   const $ = (id: string) => root.querySelector<HTMLDivElement>("#" + id)!;
+  if (phone) stage.classList.add("phone");
   // fits whatever box it lives in: the whole window, or a part of it in one-device mode
   const fit = () => {
     const w = root.clientWidth || innerWidth;
     const h = root.clientHeight || innerHeight;
+    if (phone) {
+      // phone: no scaling, the stage is the box; overlays size themselves from --vw/--vh and --z
+      stage.style.setProperty("--vw", `${w}px`);
+      stage.style.setProperty("--vh", `${h}px`);
+      stage.style.setProperty("--z", String(Math.max(0.4, Math.min(0.78, w / 820, h / 620))));
+      stage.classList.toggle("land", w > h);
+      return;
+    }
     const k = Math.min(w / W, h / H);
     stage.style.transform = `translate(${(w - W * k) / 2}px, ${(h - H * k) / 2}px) scale(${k})`;
   };
@@ -42,7 +71,7 @@ export async function startDisplay(root: HTMLElement) {
   addEventListener("pointerdown", () => initAudio());
 
   await document.fonts.load("800 40px 'Baloo Bhaijaan 2'").catch(() => {});
-  let view = new BoardView($("game"), BOARDS.island);
+  let view = new BoardView($("game"), BOARDS.island, { fluid: phone });
   await view.ready;
   let board = view.scene;
   let boardId = "island";
@@ -51,35 +80,52 @@ export async function startDisplay(root: HTMLElement) {
   async function useBoard(id: string) {
     view.game?.destroy(true);
     $("game").innerHTML = "";
-    view = new BoardView($("game"), BOARDS[id] ?? BOARDS.island);
+    view = new BoardView($("game"), BOARDS[id] ?? BOARDS.island, { fluid: phone });
     await view.ready;
     board = view.scene;
     boardId = id;
   }
 
-  const sock = connect();
   const clock = new Clock();
-  const table = new CardTable($("table"), clock);
+  const table = new CardTable($("table"), clock, { phone, me: opts.me });
   let st: GameState | null = null;
   let seen = -1;
   let lanBase = "";
   // phones need an address they can reach: the page's own address, unless the screen runs on localhost
   // (then use this computer's Wi-Fi address). Online (Render) it's simply the public address.
   const onLocalhost = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
-  if (!isLocal() && !onLocalhost) lanBase = location.origin;
+  if (phone) lanBase = "";
+  else if (!isLocal() && !onLocalhost) lanBase = location.origin;
   else if (!isLocal()) fetch("/api/lan").then((r) => r.json()).then((d: { ips: string[] }) => {
     const host = d.ips[0] ?? location.hostname;
     lanBase = `${location.protocol}//${host}${location.port ? ":" + location.port : ""}`;
     if (st) render(st, false);
   }).catch(() => (lanBase = location.origin));
 
-  sock.on("connect", () => {
-    const saved = isLocal() ? null : JSON.parse(sessionStorage.getItem("duck-screen") ?? "null");
-    const create = () => sock.emit("screen:create", (res) => sessionStorage.setItem("duck-screen", JSON.stringify(res)));
-    if (saved) sock.emit("screen:resume", saved, (ok) => !ok && create());
-    else create();
-  });
-  sock.on("state", (s) => {
+  if (!phone) {
+    const sock = connect();
+    sock.on("connect", () => {
+      const saved = isLocal() ? null : JSON.parse(sessionStorage.getItem("duck-screen") ?? "null");
+      const create = () => sock.emit("screen:create", (res) => sessionStorage.setItem("duck-screen", JSON.stringify(res)));
+      if (saved) sock.emit("screen:resume", saved, (ok) => !ok && create());
+      else create();
+    });
+    sock.on("state", (s) => onState(s));
+  }
+  function onState(s: GameState) {
+    if (phone) {
+      // the view may just have appeared (lobby -> game) or changed shape: lay out before animating
+      $("game").classList.toggle("hidden", isCards(s) || isSport(s));
+      $("table").classList.toggle("hidden", !isCards(s));
+      $("sport").classList.toggle("hidden", !isSport(s));
+      view.fit();
+      table.fit();
+    }
+    // reset one-shot screens when a new game starts
+    if (s.phase === "lobby" || s.phase === "intro") {
+      finalShown = false;
+      endShown = false;
+    }
     clock.update(s);
     $("connecting").classList.add("hidden");
     // the card game has no map: keep whatever board scene is loaded behind it
@@ -102,7 +148,7 @@ export async function startDisplay(root: HTMLElement) {
       playAnim(s, prev);
     }
     render(s, fresh);
-  });
+  }
 
   // ------------------------------------------------------------------ helpers
   let bannerTimer = 0;
@@ -240,8 +286,20 @@ export async function startDisplay(root: HTMLElement) {
   function playAnim(s: GameState, prev: GameState | null) {
     const a = s.anim;
     if (isCards(s) && a.kind === "draw" && a.why === "deal")
-      banner("يلا نوزع الكروت!", "طابق اللون أو الرقم. أول واحد يخلص كروته يفوز، ولما يبقى لك كرت واحد صيح كواك!", 4300);
+      banner("يلا نوزع الكروت!", "طابق اللون أو الرقم. أول واحد يخلص كروته يفوز، ولما يبقى لك كرت واحد صيح كش!", 4300);
     if (isCards(s) && table.anim(s)) return;
+    if (isSport(s)) {
+      if (a.kind === "shot" || a.kind === "sportRound") return sportView?.anim(s);
+      if (a.kind === "win") {
+        sportView?.anim(s);
+        sfx.fanfare();
+        const p = pl(a.playerId);
+        const sp = s.sport;
+        if (p && sp)
+          modal(`<div class="panel"><div class="icon">${icon("trophy", 130)}</div><h1>${esc(p.name)} فاز!</h1><p>${ar(sp.total[p.id] ?? 0)} ${sp.better === "high" ? "نقطة" : "ضربة"}</p><div class="icon">${tokenImg(p.duck, 150)}</div></div>`, 4000);
+        return;
+      }
+    }
     switch (a.kind) {
       case "roll": {
         hideModal();
@@ -368,11 +426,12 @@ export async function startDisplay(root: HTMLElement) {
       case "banner":
         {
           const curP = ["turn", "choosePath", "buyStar", "pickTarget", "shop", "wheel"].includes(s.phase) ? pl(s.order[s.turnIdx]) : undefined;
-          banner(a.title, a.text, 0, curP?.duck);
+          // sports: the view has its own HUD, so announcements go away by themselves
+          banner(a.title, a.text, isSport(s) ? 3800 : 0, curP?.duck);
         }
         if (s.phase === "intro") {
           board.follow(null);
-          modal(`<div class="panel"><div class="icon">${tokenImg(0, 140)}</div><h1>${esc(a.title)}</h1><p>${esc(a.text)}</p>${isRace(s) ? "" : `<p>النجمة بـ ${ar(STAR_COST)} فتات</p>`}</div>`, 4000);
+          modal(`<div class="panel"><div class="icon">${tokenImg(0, 140)}</div><h1>${esc(a.title)}</h1><p>${esc(a.text)}</p>${isRace(s) || isSport(s) || isCards(s) ? "" : `<p>النجمة بـ ${ar(STAR_COST)} فتات</p>`}</div>`, 4000);
         }
         if (s.phase === "turn") {
           hideModal();
@@ -392,13 +451,18 @@ export async function startDisplay(root: HTMLElement) {
   function render(s: GameState, fresh: boolean) {
     // race boards keep the HUD in the side margins so the 10x10 grid is never covered
     $("stage").classList.toggle("race", isRace(s));
+    $("stage").classList.toggle("cards", isCards(s));
     const inGame = s.phase !== "lobby";
     const cards = isCards(s);
-    $("game").classList.toggle("hidden", cards);
+    const sport = isSport(s);
+    $("game").classList.toggle("hidden", cards || sport);
     $("table").classList.toggle("hidden", !cards);
+    $("sport").classList.toggle("hidden", !sport);
     if (cards) table.render(s);
+    if (sport) syncSport(s);
+    else dropSport();
     // board pieces
-    if (cards) board.sync([], undefined);
+    if (cards || sport) board.sync([], undefined);
     else if (inGame) {
       board.sync(s.players, s.order[s.turnIdx]);
       board.setStar(s.starNode, false);
@@ -410,13 +474,13 @@ export async function startDisplay(root: HTMLElement) {
     if (!inGame) renderLobby(s);
 
     // cards + round
-    $("cards").classList.toggle("hidden", !inGame || s.phase === "end" || cards);
-    if (inGame && !cards) {
+    $("cards").classList.toggle("hidden", !inGame || s.phase === "end" || cards || sport);
+    if (inGame && !cards && !sport) {
       renderCards(s);
       animateCrumbs(s);
     }
     const round = $("round");
-    round.classList.toggle("hidden", !inGame || s.round < 1 || s.phase === "end" || s.phase === "final" || cards);
+    round.classList.toggle("hidden", !inGame || s.round < 1 || s.phase === "end" || s.phase === "final" || cards || sport);
     round.classList.toggle("last", s.round === s.maxRounds);
     round.innerHTML = `الجولة <b>${ar(s.round)}</b> من ${ar(s.maxRounds)}`;
 
@@ -442,7 +506,7 @@ export async function startDisplay(root: HTMLElement) {
       mgKey = "";
       hideModal();
     }
-    if (s.phase === "final" && !isRace(s) && !cards) renderFinal(s);
+    if (s.phase === "final" && !isRace(s) && !cards && !sport) renderFinal(s);
     renderSpecial(s);
     if (s.phase === "end") renderEnd(s);
     if (s.phase === "lobby") {
@@ -452,18 +516,18 @@ export async function startDisplay(root: HTMLElement) {
   }
 
   function renderLobby(s: GameState) {
-    const url = lanBase ? `${lanBase}/?join=${s.code}` : "";
+    const url = !lanBase ? "" : lanBase === location.origin ? joinUrl(s.code) : `${lanBase}/?join=${s.code}`;
     const lobby = $("lobby");
     if (!lobby.dataset.code || lobby.dataset.code !== s.code + url + s.boardId) {
       lobby.dataset.code = s.code + url + s.boardId;
       lobby.innerHTML = isLocal()
-        ? `<div class="join"><h1>حفلة البط</h1><div class="sub">على هالجهاز</div><div class="bname">${esc(BOARDS[s.boardId]?.name ?? `${CARD_GAME.name} ${CARD_GAME.sub}`)}</div></div>
+        ? `<div class="join"><h1>حفلة البط</h1><div class="sub">على هالجهاز</div><div class="bname">${esc(gameName(s.boardId))}</div></div>
            <div class="seats" id="seats"></div><div class="hint" id="hint"></div>`
         : `
         <div class="join">
           <h1>حفلة البط</h1>
           <div class="sub">صوّر الكود من تلفونك وادخل</div>
-          <div class="bname">${esc(BOARDS[s.boardId]?.name ?? `${CARD_GAME.name} ${CARD_GAME.sub}`)}</div>
+          <div class="bname">${esc(gameName(s.boardId))}</div>
           <img class="qr" id="qr" alt="">
           <div class="code">${s.code}</div>
           <div class="url">${esc(url.replace(/^https?:\/\//, ""))}</div>
@@ -485,7 +549,7 @@ export async function startDisplay(root: HTMLElement) {
       seats.querySelectorAll(".nm").forEach((el, i) => (el.textContent = s.players[i]?.name ?? ""));
     }
     lobby.querySelector("#hint")!.textContent =
-      (s.players.length < 2 ? "تحتاجون لاعبين على الأقل" : `${isCards(s) ? "أول واحد يخلص كروته يفوز" : `${ar(s.maxRounds)} جولات`} · ${isLocal() ? "ابدأ من لوحتك" : "المنظم يبدأ اللعبة من تلفونه"}`) +
+      (s.players.length < 2 ? "تحتاجون لاعبين على الأقل" : `${isCards(s) ? "أول واحد يخلص كروته يفوز" : isSport(s) ? "كلكم تلعبون بنفس الوقت" : `${ar(s.maxRounds)} جولات`} · ${isLocal() ? "ابدأ من لوحتك" : "المنظم يبدأ اللعبة من تلفونه"}`) +
       (s.organizer ? ` · المنظم: ${s.organizer.name} (ما يلعب)` : "");
   }
 
@@ -521,7 +585,7 @@ export async function startDisplay(root: HTMLElement) {
     const card = document.querySelector<HTMLElement>(`[data-pid="${pid}"] [data-crumbs]`);
     if (!from || !card) return;
     const stageRect = stage.getBoundingClientRect();
-    const k = stageRect.width / W;
+    const k = stageRect.width / (phone ? stage.offsetWidth || 1 : W);
     const r = card.getBoundingClientRect();
     const to = { x: (r.left - stageRect.left) / k + 10, y: (r.top - stageRect.top) / k + 10 };
     const n = Math.min(8, Math.max(2, Math.ceil(amount / 2)));
@@ -773,21 +837,61 @@ export async function startDisplay(root: HTMLElement) {
     const heights: Record<number, number> = { 0: 260, 1: 190, 2: 140 };
     const colors = ["#ffd23f", "#c9d3e0", "#e3a26b"];
     sfx.fanfare();
-    if (!isCards(s)) setTimeout(() => board.celebrate(rk[0].id), 400);
+    if (!isCards(s) && !isSport(s)) setTimeout(() => board.celebrate(rk[0].id), 400);
     modal(`<div class="panel"><div class="icon">${icon("trophy", 130)}</div><h1>${esc(rk[0].name)} فاز!</h1>
       <div class="podium">${order
         .map((p) => {
           const r = rk.indexOf(p);
-          return `<div class="pod p${r + 1}"><img src="${duckImg(p)}" alt=""><div class="nm">${esc(p.name)}</div><div class="sc">${isCards(s) ? (s.table?.counts[p.id] ? `باقي ${ar(s.table.counts[p.id])} كروت` : "خلّص كروته!") : isRace(s) ? `خانة ${ar(p.node + 1)}` : `${icon("star")}${ar(p.stars)} · ${icon("bread")}${ar(p.crumbs)}`}</div><div class="blk" style="height:${heights[r]}px;background:${colors[r]}">${ar(r + 1)}</div></div>`;
+          return `<div class="pod p${r + 1}"><img src="${duckImg(p)}" alt=""><div class="nm">${esc(p.name)}</div><div class="sc">${isSport(s) ? `${ar(s.sport?.total[p.id] ?? 0)} ${s.sport?.better === "high" ? "نقطة" : "ضربة"}` : isCards(s) ? (s.table?.counts[p.id] ? `باقي ${ar(s.table.counts[p.id])} كروت` : "خلّص كروته!") : isRace(s) ? `خانة ${ar(p.node + 1)}` : `${icon("star")}${ar(p.stars)} · ${icon("bread")}${ar(p.crumbs)}`}</div><div class="blk" style="height:${heights[r]}px;background:${colors[r]}">${ar(r + 1)}</div></div>`;
         })
         .join("")}</div><p>${isLocal() ? "تقدر تبدأ لعبة جديدة من لوحتك" : "المنظم يقدر يبدأ لعبة جديدة من تلفونه"}</p></div>`);
   }
 
-  // reset one-shot screens when a new game starts
-  sock.on("state", (s) => {
-    if (s.phase === "lobby" || s.phase === "intro") {
-      finalShown = false;
-      endShown = false;
-    }
-  });
+  // ------------------------------------------------------------------ bowling / golf
+  let sportView: SportView | null = null;
+  let sportId = "";
+  let sportLoading = "";
+  let sportCb: ((shot: Shot) => void) | null = null;
+  function syncSport(s: GameState) {
+    const id = s.boardId as SportId;
+    if (sportView && sportId === id) return sportView.render(s);
+    if (sportLoading === id) return;
+    sportLoading = id;
+    sportView?.destroy();
+    sportView = null;
+    const box = $("sport");
+    const vopts = { mode: phone ? ("personal" as const) : ("screen" as const), me: opts.me ?? (() => ""), sound: true };
+    void loadSportView(id)
+      .then((make) => {
+        if (sportLoading !== id) return; // another game was picked meanwhile
+        sportLoading = "";
+        sportId = id;
+        try {
+          sportView = make(box, vopts);
+        } catch {
+          // no WebGL here: a plain view still lets people play
+          box.innerHTML = "";
+          sportView = placeholderView(box, vopts, gameName(id));
+        }
+        sportView.setInput(sportCb);
+        if (st && isSport(st)) sportView.render(st);
+      })
+      .catch(() => (sportLoading = ""));
+  }
+  /** back to a board or the card game: stop the 3D view (its loop would keep running hidden) */
+  function dropSport() {
+    if (!sportView && !sportLoading) return;
+    sportLoading = "";
+    sportView?.destroy();
+    sportView = null;
+    sportId = "";
+  }
+
+  return {
+    state: onState,
+    sportInput(cb) {
+      sportCb = cb;
+      sportView?.setInput(cb);
+    },
+  };
 }

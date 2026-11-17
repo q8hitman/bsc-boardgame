@@ -49,3 +49,5 @@ body.lp-on { background: #0b2540; }
   .lp-panel.p1 { border-left: 4px solid var(--ink); }
   .lp-game.h2 .pad-main h1 { font-size: 24px; }
 }
+/* one person on a phone: the exit sits on the board, top-left */
+.ph-exit { position: fixed; top: calc(env(safe-area-inset-top) + 52px); left: 8px; z-index: 40; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, .5); color: #fff; text-decoration: none; font-weight: 800; }

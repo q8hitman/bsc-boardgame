@@ -2,7 +2,10 @@ import {
   BOARDS, DUCKS, EVENTS, ITEMS, LANDMARKS, MAX_PLAYERS, MG_REWARDS, MINIGAMES, MINIGAME_ROTATION, SHOP_STOCK, START_CRUMBS, STAR_COST, WHEEL,
 } from "../shared/data";
 import { CardGame } from "./cards";
-import { CARDS_ID, isCards, isRace, PARTY_DEFAULT_ROUNDS, RACE_DEFAULT_ROUNDS, RACE_MG_EVERY, RACE_STEPS } from "../shared/rules";
+import { SportGame } from "./sports";
+import { isSportId, SPORTS } from "../shared/sports";
+import type { SportId } from "../shared/sports/types";
+import { BOARD_SEATS, CARDS_ID, isBoardGame, isCards, isRace, isSport, PARTY_DEFAULT_ROUNDS, RACE_DEFAULT_ROUNDS, RACE_MG_EVERY, RACE_STEPS } from "../shared/rules";
 import type { GameIO, GameSocket } from "./wire";
 import type {
   Anim, Board, BoardNode, GameState, ItemId, MinigameId, Player,
@@ -25,7 +28,11 @@ const shuffle = <T>(arr: T[]) => {
 const token = () => Array.from(globalThis.crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
 const arDigits = (t: string) => t.replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[+d]).replace(/\./g, "٫");
 
-const BOT_NAMES = ["بطوط", "كواك", "ريشة", "زعنفة", "بقبق", "فطوم", "شلبي", "دودي"];
+/** A phone that drops out of the lobby (switching apps to share the link) keeps its seat this long. */
+let LOBBY_GRACE_MS = 45000;
+export const setLobbyGrace = (ms: number) => (LOBBY_GRACE_MS = ms);
+
+const BOT_NAMES = ["بطوط", "سمسم", "ريشة", "زعنفة", "بقبق", "فطوم", "شلبي", "دودي"];
 
 export class Room {
   state: GameState;
@@ -34,6 +41,7 @@ export class Room {
   private tokens = new Map<string, string>(); // token -> playerId
   private sockets = new Map<string, string>(); // playerId -> socket id
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private grace = new Map<string, ReturnType<typeof setTimeout>>(); // playerId -> lobby seat timeout
   private botTimers: ReturnType<typeof setTimeout>[] = [];
   private moving: { pid: string; left: number; double: boolean } | null = null;
   private dice = 1;
@@ -45,8 +53,9 @@ export class Room {
   private mgScores: Record<string, number> = {};
   lastActivity = Date.now();
   private cards: CardGame;
+  readonly sports: SportGame;
 
-  constructor(private io: IO, public code: string) {
+  constructor(private io: IO, public code: string, opts: { screen: boolean } = { screen: true }) {
     this.board = BOARDS.island;
     this.state = {
       code,
@@ -61,8 +70,19 @@ export class Room {
       boardId: this.board.id,
       seq: 0,
       anim: { kind: "none" },
+      screen: opts.screen,
     };
     const room = this;
+    this.sports = new SportGame({
+      get state() {
+        return room.state;
+      },
+      emit: (a) => this.emit(a),
+      schedule: (ms, fn) => this.schedule(ms, fn),
+      botLater: (ms, fn) => this.botLater(ms, fn),
+      clearBots: () => this.clearBots(),
+      setPhase: (ph, ms) => this.setPhase(ph, ms ?? null),
+    });
     this.cards = new CardGame({
       get state() {
         return room.state;
@@ -116,6 +136,9 @@ export class Room {
     this.state.phaseEndsAt = timeoutMs ? Date.now() + timeoutMs : null;
   }
   dispose() {
+    this.sports?.stop();
+    this.grace.forEach(clearTimeout);
+    this.grace.clear();
     this.cards?.stop();
     if (this.timer) clearTimeout(this.timer);
     this.clearBots();
@@ -127,7 +150,9 @@ export class Room {
     sock.emit("state", { ...this.state, serverNow: Date.now() });
   }
 
-  join(sock: Sock, name: string | undefined, tok: string | undefined) {
+  join(sock: Sock, name: string | undefined, tok: string | undefined, rawProfile?: string) {
+    // other phones use this as a key in their saved record: hex only, bounded
+    const profileId = rawProfile && /^[0-9a-f]{8,40}$/.test(rawProfile) ? rawProfile : undefined;
     const existing = tok ? this.tokens.get(tok) : undefined;
     const org = this.state.organizer;
     if (existing && org && org.id === existing) {
@@ -141,6 +166,10 @@ export class Room {
     if (existing && this.p(existing)) {
       const pl = this.p(existing)!;
       pl.connected = true;
+      if (profileId) pl.profileId = profileId;
+      clearTimeout(this.grace.get(pl.id));
+      this.grace.delete(pl.id);
+      this.ensureHost(pl);
       this.sockets.set(pl.id, sock.id);
       sock.join(this.code);
       sock.data.playerId = pl.id;
@@ -150,6 +179,7 @@ export class Room {
     }
     if (this.state.phase !== "lobby") return { ok: false as const, error: "اللعبة بدأت. انتظر الجولة الجاية" };
     if (this.state.players.length >= MAX_PLAYERS) return { ok: false as const, error: "الغرفة مليانة" };
+    if (isBoardGame(this.state) && this.humans >= BOARD_SEATS) return { ok: false as const, error: "البورد لـ٤ لاعبين بس، والغرفة مليانة" };
     const used = new Set(this.state.players.map((x) => x.duck));
     const duck = DUCKS.findIndex((_, i) => !used.has(i));
     const humans = this.state.players.filter((x) => !x.isBot);
@@ -166,11 +196,14 @@ export class Room {
       connected: true,
       shielded: false,
       stats: { minigameWins: 0, stolenFrom: 0, risks: 0 },
+      profileId,
     };
     const t = token();
     this.tokens.set(t, pl.id);
     this.sockets.set(pl.id, sock.id);
     this.state.players.push(pl);
+    this.ensureHost(pl);
+    this.fillSeats();
     sock.join(this.code);
     sock.data.playerId = pl.id;
     this.emit();
@@ -193,8 +226,11 @@ export class Room {
     pl.connected = false;
     this.sockets.delete(playerId);
     if (this.state.phase === "lobby") {
-      // free the seat in the lobby; a reconnect with the token re-adds nothing, so keep it simple
-      this.state.players = this.state.players.filter((x) => x.id !== playerId);
+      // keep the seat (and host) for a while: the phone may only be switching apps to share the link
+      this.emit();
+      clearTimeout(this.grace.get(playerId));
+      this.grace.set(playerId, setTimeout(() => this.dropFromLobby(playerId), LOBBY_GRACE_MS));
+      return;
     }
     if (pl.isHost) {
       pl.isHost = false;
@@ -204,8 +240,31 @@ export class Room {
     this.emit();
     // if it was their decision, let the timeout / auto-play handle it quickly
     if (this.state.phase === "turn" && this.current?.id === playerId) this.schedule(2500, () => this.roll(playerId, true));
+    if (this.state.phase === "sport") this.sports.playFor(playerId);
     // card game: give a dropped phone a few seconds to come back before playing the turn for them
     if (this.state.phase === "cards" && this.current?.id === playerId) this.botLater(6000, () => !pl.connected && this.current?.id === playerId && this.cards.skip());
+  }
+
+  /** Lobby grace ran out: free the seat and hand host over. */
+  private dropFromLobby(playerId: string) {
+    this.grace.delete(playerId);
+    const pl = this.p(playerId);
+    if (!pl || pl.connected || this.state.phase !== "lobby") return;
+    this.state.players = this.state.players.filter((x) => x.id !== playerId);
+    if (pl.isHost) {
+      // prefer someone here; otherwise someone who is away right now (they keep it when they come back)
+      const people = this.state.players.filter((x) => !x.isBot);
+      const next = people.find((x) => x.connected) ?? people[0];
+      if (next) next.isHost = true;
+    }
+    this.fillSeats();
+    this.emit();
+  }
+
+  /** A room must always have someone who can start it. */
+  private ensureHost(pl: Player) {
+    if (this.state.organizer || this.state.players.some((x) => x.isHost)) return;
+    pl.isHost = true;
   }
 
   isHost(playerId: string) {
@@ -223,6 +282,7 @@ export class Room {
       s.organizer = { id: playerId, name: pl.name, connected: true };
     } else {
       if (s.organizer?.id !== playerId || s.players.length >= MAX_PLAYERS) return;
+      if (isBoardGame(s) && this.humans >= BOARD_SEATS) return;
       const used = new Set(s.players.map((x) => x.duck));
       const duck = DUCKS.findIndex((_, i) => !used.has(i));
       for (const x of s.players) x.isHost = false;
@@ -233,12 +293,32 @@ export class Room {
       });
       s.organizer = undefined;
     }
+    this.fillSeats();
     this.emit();
   }
 
   // ---------------------------------------------------------------- lobby
+  private get humans() {
+    return this.state.players.filter((x) => !x.isBot).length;
+  }
+  /** Board games: exactly 4 seats, bots fill whatever people leave empty (and step aside when people join). */
+  private fillSeats() {
+    if (this.state.phase !== "lobby" || !isBoardGame(this.state)) return;
+    while (this.state.players.length > BOARD_SEATS) {
+      const bot = [...this.state.players].reverse().find((x) => x.isBot);
+      if (!bot) break;
+      this.state.players = this.state.players.filter((x) => x !== bot);
+    }
+    while (this.state.players.length < BOARD_SEATS && this.pushBot());
+  }
+
+  /** The card game only: board games fill their seats by themselves. */
   addBot() {
-    if (this.state.phase !== "lobby" || this.state.players.length >= MAX_PLAYERS) return;
+    if (isBoardGame(this.state) || !this.pushBot()) return;
+    this.emit();
+  }
+  private pushBot() {
+    if (this.state.phase !== "lobby" || this.state.players.length >= MAX_PLAYERS) return false;
     const used = new Set(this.state.players.map((x) => x.duck));
     const free = DUCKS.map((_, i) => i).filter((i) => !used.has(i));
     const duck = pick(free);
@@ -249,10 +329,10 @@ export class Room {
       items: [], isBot: true, isHost: false, connected: true, shielded: false,
       stats: { minigameWins: 0, stolenFrom: 0, risks: 0 },
     });
-    this.emit();
+    return true;
   }
   removeBot() {
-    if (this.state.phase !== "lobby") return;
+    if (this.state.phase !== "lobby" || isBoardGame(this.state)) return;
     const bots = this.state.players.filter((x) => x.isBot);
     if (!bots.length) return;
     const last = bots[bots.length - 1];
@@ -271,20 +351,26 @@ export class Room {
 
   /** Host picks which board to play (lobby only). */
   setBoard(id: string) {
-    if (id === CARDS_ID) {
+    if (id === CARDS_ID || isSportId(id)) {
       if (this.state.phase !== "lobby") return;
+      // free-seat games start with just the people: they add bots if they want
+      if (isBoardGame(this.state)) this.state.players = this.state.players.filter((x) => !x.isBot);
+      const was = this.state.boardId;
       this.state.boardId = id;
+      if (isSportId(id) && was !== id) this.state.course = SPORTS[id].courses?.[0]?.id;
       this.state.starNode = -1;
       this.emit();
       return;
     }
     const b = BOARDS[id];
     if (!b || this.state.phase !== "lobby" || this.state.boardId === id) return;
+    if (this.humans > BOARD_SEATS) return; // too many people for a board: stay on the card game
     this.board = b;
     this.state.boardId = id;
     this.state.starNode = b.mode === "race" ? -1 : b.starSpots[0];
     this.state.maxRounds = b.mode === "race" ? RACE_DEFAULT_ROUNDS : PARTY_DEFAULT_ROUNDS;
     for (const pl of this.state.players) pl.node = b.start;
+    this.fillSeats();
     this.emit();
   }
   private get race() {
@@ -316,6 +402,8 @@ export class Room {
       pl.stats = { minigameWins: 0, stolenFrom: 0, risks: 0 };
     }
     s.bonuses = undefined;
+    if (isSport(s)) return this.sports.start(s.boardId as SportId);
+    s.sport = undefined;
     if (isCards(s)) return this.cards.start();
     s.table = undefined;
     s.order = shuffle(s.players.map((x) => x.id));
@@ -336,6 +424,7 @@ export class Room {
 
   restart() {
     this.dispose();
+    this.state.sport = undefined;
     this.state.table = undefined;
     this.moving = null;
     this.state.phase = "lobby";
@@ -347,10 +436,19 @@ export class Room {
   }
 
   /** Host emergency button: auto-resolve whatever is being waited on. */
+  /** golf: the host picks the map in the lobby */
+  setCourse(id: string) {
+    const s = this.state;
+    if (s.phase !== "lobby" || !isSportId(s.boardId) || !SPORTS[s.boardId].courses?.some((c) => c.id === id)) return;
+    s.course = id;
+    this.emit();
+  }
+
   skip() {
     const s = this.state;
     const cur = this.current;
     if (s.phase === "cards") this.cards.skip();
+    else if (s.phase === "sport") this.sports.timeUp();
     else if (s.phase === "turn" && cur) this.roll(cur.id, true);
     else if (s.phase === "choosePath" && s.pendingChoice) this.choose(s.pendingChoice.playerId, s.pendingChoice.options[0].to, true);
     else if (s.phase === "buyStar" && s.pendingBuy) this.buy(s.pendingBuy.playerId, false, true);

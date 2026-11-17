@@ -1,24 +1,25 @@
 import { canPlay, CARD_COLORS, CARD_KINDS, COLOR_IDS, isWild } from "../../shared/cards";
-import type { Card, CardColor, GameState, Player } from "../../shared/types";
-import { cardBack, cardHtml, colorDot } from "../cards-ui";
+import type { Card, CardColor, GameState } from "../../shared/types";
+import { cardBack, cardHtml, colorDot, preloadCards } from "../cards-ui";
 import type { ClientSocket } from "../net";
 import { ar, esc, tokenImg } from "../net";
 
 const buzz = (ms: number | number[]) => navigator.vibrate?.(ms);
 const ORDER: Record<string, number> = { y: 0, r: 1, g: 2, b: 3 };
-const KORDER: Record<string, number> = { num: 0, skip: 1, rev: 2, draw2: 3, wild: 4, wild4: 5, swap: 6 };
+const KORDER: Record<string, number> = { num: 0, skip: 1, rev: 2, draw2: 3, wild: 4, wild4: 5 };
 const sortHand = (h: Card[]) =>
   [...h].sort((a, b) => (a.color ? ORDER[a.color] : 9) - (b.color ? ORDER[b.color] : 9) || KORDER[a.kind] - KORDER[b.kind] || (a.n ?? 0) - (b.n ?? 0));
 
-/** Phone side of "كواك!": your hand, the card on the table, and the buttons. */
-/** `hideHand`: several people share one screen, so a hand is face down except on its owner's turn. */
-export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => string, hideHand = false) {
+/** Phone side of "كش!": your hand, the card on the table, and the buttons. */
+/** `hideHand`: several people share one screen, so a hand is face down except on its owner's turn.
+ *  `isPhone`: the table is drawn above this pad on the same phone, so the pad is only the hand and two buttons. */
+export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => string, hideHand = false, isPhone = () => false) {
   let hand: Card[] = [];
   let st: GameState | null = null;
   let key = "";
   let preCalled = false;
   let preCalledAt = -1;
-  let sheet: "" | "color" | "target" = "";
+  let sheet: "" | "color" = "";
   let chosen: { id: number; color?: CardColor } | null = null;
   let lastTurnBuzz = -1;
 
@@ -30,6 +31,7 @@ export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => s
   }
 
   function render(s: GameState) {
+    preloadCards();
     st = s;
     const t = s.table;
     if (!t) {
@@ -59,16 +61,16 @@ export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => s
     else if (mine && t.drawn) status = "سحبت كرت ينلعب! تلعبه ولا تخليه؟";
     else if (mine && t.pendingDraw) status = `عليك +${ar(t.pendingDraw)}! ارمِ +${ar(2)} أو +${ar(4)} أو خذهم`;
     else if (mine) status = sorted.some(playable) ? "دورك! اختار كرت" : "دورك! ما عندك كرت ينلعب، اسحب";
-    else if (cur) status = `دور ${esc(cur.name)}`;
+    else if (cur) status = cur.id === me() ? "&nbsp;" : `دور ${esc(cur.name)}`; // own card still flying: say nothing
 
     // kwak button: shout it yourself, or catch someone who forgot
     let kwak = "";
-    if (t.kwak && t.kwak.playerId === me()) kwak = `<button class="kw-btn me" id="kwak">كواك!</button><p class="kw-hint">صيحها قبل لا يمسكونك!</p>`;
+    if (t.kwak && t.kwak.playerId === me()) kwak = `<button class="kw-btn me" id="kwak">كش!</button><p class="kw-hint">صيحها قبل لا يمسكونك!</p>`;
     else if (t.kwak) {
       const who = s.players.find((x) => x.id === t.kwak!.playerId);
-      kwak = `<button class="kw-btn catch" id="kwak">مسكتك!</button><p class="kw-hint">${esc(who?.name ?? "")} نسى يصيح كواك!</p>`;
-    } else if (mine && hand.length === 2 && !preCalled) kwak = `<button class="kw-btn small" id="kwak">كواك!</button>`;
-    else if (preCalled && hand.length <= 2) kwak = `<p class="kw-hint ok">صحت كواك! ✓</p>`;
+      kwak = `<button class="kw-btn catch" id="kwak">مسكتك!</button><p class="kw-hint">${esc(who?.name ?? "")} نسى يقول كش!</p>`;
+    } else if (mine && hand.length === 2 && !preCalled) kwak = `<button class="kw-btn small" id="kwak">كش!</button>`;
+    else if (preCalled && hand.length <= 2) kwak = `<p class="kw-hint ok">صحت كش! ✓</p>`;
 
     // overlap the hand so it fits; scroll when it's very big
     const room = Math.min(main.clientWidth || innerWidth - 32, 520) - 6;
@@ -77,7 +79,41 @@ export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => s
     const n = sorted.length;
     const step = n > 1 ? Math.max(Math.round(W * 0.33), Math.min(W + 6, (avail - W) / (n - 1))) : W;
 
-    main.innerHTML = `
+    // phone room: the table is above, so here only the status, the fanned hand and the two buttons (as in the mockups)
+    const phoneHtml = () => {
+      const width = main.clientWidth || innerWidth;
+      const land = innerWidth > innerHeight;
+      const cw = Math.round(Math.max(62, Math.min(land ? 76 : 94, width / (land ? 7.5 : 4))));
+      const room2 = Math.min(width - (land ? 150 : 16) - cw * 0.35, 640);
+      const st2 = n > 1 ? Math.max(cw * 0.22, Math.min(cw * 0.66, (room2 - cw) / (n - 1))) : 0;
+      const rowW = (n - 1) * st2 + cw;
+      const tilt = Math.min(4.5, 26 / Math.max(1, n));
+      const cards = sorted
+        .map((c, i) => {
+          const k = i - (n - 1) / 2;
+          return `<button class="cp-card ${playable(c) ? "ok" : mine ? "no" : ""} ${t.drawn?.cardId === c.id ? "drawn" : ""}" data-id="${c.id}" style="left:${i * st2}px;--r:${(k * tilt).toFixed(1)}deg;--y:${(Math.abs(k) * tilt * 0.9).toFixed(1)}px">${cardHtml(c, cw)}</button>`;
+        })
+        .join("");
+      let kb = `<button class="ph-k off" disabled>كش!</button>`;
+      if (t.kwak && t.kwak.playerId === me()) kb = `<button class="ph-k me" id="kwak">كش!</button>`;
+      else if (t.kwak) kb = `<button class="ph-k catch" id="kwak">مسكتك!</button>`;
+      else if (mine && hand.length === 2 && !preCalled) kb = `<button class="ph-k" id="kwak">كش!</button>`;
+      else if (preCalled && hand.length <= 2) kb = `<button class="ph-k done" disabled>كش ✓</button>`;
+      const db = mine && t.drawn
+        ? `<button class="ph-d alt" id="keep">خلّه وكمّل</button>`
+        : mine
+          ? `<button class="ph-d ${t.pendingDraw ? "red" : ""}" id="draw">${t.pendingDraw ? `خذ +${ar(t.pendingDraw)}` : "اسحب كرت"}</button>`
+          : `<button class="ph-d off" disabled>اسحب كرت</button>`;
+      const who = t.kwak && t.kwak.playerId !== me() ? s.players.find((x) => x.id === t.kwak!.playerId) : undefined;
+      const line = who ? `${esc(who.name)} نسى يقول كش! امسكه` : t.kwak ? "صيح كش! قبل لا يمسكونك" : status;
+      return `<div class="cp ph-cp">
+        <h2 class="ph-st ${mine || t.kwak ? "mine" : ""}">${line}</h2>
+        <div class="cp-hand ph-hand ${mine ? "turn" : ""}"><div class="cp-row" style="width:${rowW}px;--cw-h:${Math.round(cw * 1.3167)}px">${cards}</div></div>
+        <div class="ph-btns">${db}${kb}</div>
+      </div>${sheet === "color" ? colorSheet() : ""}`;
+    };
+
+    main.innerHTML = isPhone() ? phoneHtml() : `
       <div class="cp">
         <div class="cp-table">
           <div class="cp-top">${top ? cardHtml(top, 86) : ""}${top && !top.color ? `<div class="cp-pick" style="--g:${col.hex}"></div>` : ""}</div>
@@ -103,12 +139,12 @@ export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => s
           .join("")}</div>
         <div class="cp-count">كروتك: ${ar(n)}</div>
         <div class="cp-hand ${mine ? "turn" : ""}" style="--step:${step}px">
-          <div class="cp-row" style="width:${(n - 1) * step + W}px;--cw-h:${Math.round(W * 1.48)}px">
+          <div class="cp-row" style="width:${(n - 1) * step + W}px;--cw-h:${Math.round(W * 1.3167)}px">
             ${sorted.map((c, i) => `<button class="cp-card ${playable(c) ? "ok" : mine ? "no" : ""} ${t.drawn?.cardId === c.id ? "drawn" : ""}" data-id="${c.id}" style="right:${i * step}px">${hideHand && !mine ? cardBack(W) : cardHtml(c, W)}</button>`).join("")}
           </div>
         </div>
       </div>
-      ${sheet === "color" ? colorSheet() : ""}${sheet === "target" ? targetSheet(s) : ""}`;
+      ${sheet === "color" ? colorSheet() : ""}`;
 
     main.querySelectorAll<HTMLButtonElement>(".cp-card.ok").forEach((b) =>
       b.addEventListener("click", () => {
@@ -148,23 +184,8 @@ export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => s
         if (!chosen) return;
         buzz(25);
         chosen.color = b.dataset.color as CardColor;
-        const c = hand.find((x) => x.id === chosen!.id);
-        if (c?.kind === "swap" && s.players.length > 2) {
-          sheet = "target";
-          key = "";
-          render(s);
-          return;
-        }
         sheet = "";
         sock.emit("card:play", { id: chosen.id, color: chosen.color });
-        chosen = null;
-      }),
-    );
-    main.querySelectorAll<HTMLButtonElement>("[data-target]").forEach((b) =>
-      b.addEventListener("click", () => {
-        if (!chosen) return;
-        sheet = "";
-        sock.emit("card:play", { id: chosen.id, color: chosen.color, target: b.dataset.target });
         chosen = null;
       }),
     );
@@ -184,13 +205,6 @@ export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => s
       <button class="small-btn" id="sheetx">رجوع</button></div></div>`;
   }
 
-  function targetSheet(s: GameState) {
-    const others = s.players.filter((x) => x.id !== me());
-    return `<div class="cp-sheet"><div class="cp-sheet-in">
-      <h2>تبدّل كروتك مع منو؟</h2>
-      <div class="targets">${others.map((p: Player) => `<button class="target" data-target="${p.id}">${tokenImg(p.duck, 64)}${esc(p.name)}<br><small>${ar(s.table?.counts[p.id] ?? 0)} كروت</small></button>`).join("")}</div>
-      <button class="small-btn" id="sheetx">رجوع</button></div></div>`;
-  }
 
-  return { render, setHand, reset: () => ((key = ""), (hand = []), (preCalled = false)) };
+  return { render, setHand, reset: () => ((key = ""), (hand = []), (preCalled = false)), refresh: () => ((key = ""), st && render(st)) };
 }

@@ -30,6 +30,16 @@ export function wireSocket(io: GameIO, sock: GameSocket, rooms: Map<string, Room
     if (r && sock.data.playerId && r.isHost(sock.data.playerId)) fn(r);
   };
   const me = () => sock.data.playerId;
+  // anything can arrive over the network: a missing callback or a non-string must never throw (it would stop the server)
+  type Cb<T> = (res: T) => void;
+  const ack = <T>(cb: unknown): Cb<T> => (typeof cb === "function" ? (cb as Cb<T>) : () => {});
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  /** a phone that makes or joins another room leaves the one it was in */
+  const leaveCurrent = () => {
+    const r = room();
+    if (r && me()) r.leave(me()!);
+    sock.data.playerId = undefined;
+  };
 
   sock.on("screen:create", (cb) => {
     const code = newCode(rooms);
@@ -37,20 +47,32 @@ export function wireSocket(io: GameIO, sock: GameSocket, rooms: Map<string, Room
     rooms.set(code, r);
     sock.data.code = code;
     r.attachScreen(sock);
-    cb({ code, token: r.screenToken });
+    ack<{ code: string; token: string }>(cb)({ code, token: r.screenToken });
   });
-  sock.on("screen:resume", ({ code, token }, cb) => {
-    const r = rooms.get(code?.toUpperCase());
-    if (!r || r.screenToken !== token) return cb(false);
+  sock.on("room:create", (data, cb) => {
+    leaveCurrent();
+    const code = newCode(rooms);
+    const r = new Room(io, code, { screen: false });
+    rooms.set(code, r);
+    sock.data.code = code;
+    const res = r.join(sock, str(data?.name), undefined, str(data?.profileId));
+    ack<Parameters<Parameters<ClientToServer["room:create"]>[1]>[0]>(cb)(res.ok ? { ...res, code } : res);
+  });
+  sock.on("screen:resume", (data, cb) => {
+    const done = ack<boolean>(cb);
+    const r = rooms.get((str(data?.code) ?? "").toUpperCase());
+    if (!r || r.screenToken !== data?.token) return done(false);
     sock.data.code = r.code;
     r.attachScreen(sock);
-    cb(true);
+    done(true);
   });
-  sock.on("player:join", ({ code, name, token }, cb) => {
-    const r = rooms.get((code ?? "").toUpperCase().trim());
-    if (!r) return cb({ ok: false, error: "ما لقينا غرفة بهالرمز" });
+  sock.on("player:join", (data, cb) => {
+    const done = ack<Parameters<Parameters<ClientToServer["player:join"]>[1]>[0]>(cb);
+    const r = rooms.get((str(data?.code) ?? "").toUpperCase().trim());
+    if (!r) return done({ ok: false, error: "ما لقينا غرفة بهالرمز" });
+    if (sock.data.code && sock.data.code !== r.code) leaveCurrent();
     sock.data.code = r.code;
-    cb(r.join(sock, name, token));
+    done(r.join(sock, str(data?.name), str(data?.token), str(data?.profileId)));
   });
 
   sock.on("host:addBot", asHost((r) => r.addBot()));
@@ -71,10 +93,12 @@ export function wireSocket(io: GameIO, sock: GameSocket, rooms: Map<string, Room
   sock.on("player:target", (id) => me() && room()?.target(me()!, String(id)));
   sock.on("player:shopBuy", (item) => me() && room()?.shopBuy(me()!, item ?? null));
   sock.on("player:spin", () => me() && room()?.spin(me()!));
-  sock.on("card:play", (d) => me() && room()?.cardGame.play(me()!, Number(d?.id), d?.color, d?.target ? String(d.target) : undefined));
+  sock.on("card:play", (d) => me() && room()?.cardGame.play(me()!, Number(d?.id), d?.color));
   sock.on("card:draw", () => me() && room()?.cardGame.draw(me()!));
   sock.on("card:keep", () => me() && room()?.cardGame.keep(me()!));
   sock.on("card:kwak", () => me() && room()?.cardGame.kwak(me()!));
+  sock.on("sport:shot", (shot) => me() && room()?.sports.shoot(me()!, shot));
+  sock.on("host:setCourse", (id) => asHost((r) => r.setCourse(String(id)))());
   sock.on("mg:submit", (d) => me() && room()?.submit(me()!, Number(d?.score)));
   if (dev) {
     sock.on("dev:minigame", (id) => room()?.devMinigame(id));

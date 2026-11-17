@@ -1,9 +1,9 @@
 import type { Card, CardColor, CardKind, CardTable } from "./types";
 
-/** "كواك!" — the club's shedding card game. Each colour is led by one club duck, each action card by a duck
- *  dressed as a film / series character. Art: /assets/cards/{slot}.png (slot = colour id, action kind, or "back");
- *  the prompts for the final art are in docs/card-art-prompts.md. */
-export const CARD_GAME = { name: "كواك!", sub: "لعبة الكروت" };
+/** "كش!" — the club's shedding card game. Each colour is led by one club duck, each action card by a duck
+ *  dressed as a film / series character. Art: /assets/cards/*.webp, one painted image per card face
+ *  (cut from the sheets in tools/src-art/club/final by tools/cut_card_sheets.py). */
+export const CARD_GAME = { name: "كش!", sub: "لعبة الكروت" };
 
 export const CARD_COLORS: Record<CardColor, { name: string; hex: string; deep: string; light: string }> = {
   y: { name: "أصفر", hex: "#FFC21A", deep: "#C77700", light: "#FFE58A" },
@@ -21,18 +21,18 @@ export const CARD_KINDS: Record<CardKind, { name: string; desc: string; label?: 
   draw2: { name: "تكاثر", desc: "اللي بعدك يسحب ٢", label: "+٢", duck: "رؤى" },
   wild: { name: "قرار الدكتورة", desc: "تختار اللون اللي تبيه", label: "سحر", duck: "د. زهراء" },
   wild4: { name: "واجب إضافي", desc: "تختار اللون واللي بعدك يسحب ٤", label: "+٤", duck: "د. زهراء" },
-  swap: { name: "تبديل العينات", desc: "تبدّل كروتك مع لاعب تختاره وتختار اللون", label: "تبادل", duck: "عبدالله" },
 };
 /** Which club duck leads each colour (number cards). */
 export const COLOR_DUCK: Record<CardColor, string> = { y: "بسام", r: "كيراز", g: "أحمد", b: "عبدالله" };
 
-/** Art slot for a card face. */
-export const cardArt = (c: Card) => `assets/cards/${c.kind === "num" ? c.color : c.kind}.png`;
+/** Painted art for a card face (tools/cut_card_sheets.py): y7.webp, r-skip.webp, wild4.webp ... */
+export const cardArt = (c: Card) =>
+  `assets/cards/${c.kind === "num" ? `${c.color}${c.n}` : c.color ? `${c.color}-${c.kind}` : c.kind}.webp`;
 
 export const HAND_SIZE = 7;
 export const KWAK_MS = 3200;
 
-/** 110 cards: per colour 0 ×1, 1-9 ×2, skip / reverse / +2 ×2; then 4 wild, 4 wild +4, 2 pirate swaps. */
+/** 108 cards: per colour 0 ×1, 1-9 ×2, skip / reverse / +2 ×2; then 4 wild, 4 wild +4. */
 export function buildDeck(): Card[] {
   const deck: Card[] = [];
   let id = 0;
@@ -43,11 +43,10 @@ export function buildDeck(): Card[] {
   }
   for (let k = 0; k < 4; k++) deck.push({ id: id++, kind: "wild" });
   for (let k = 0; k < 4; k++) deck.push({ id: id++, kind: "wild4" });
-  for (let k = 0; k < 2; k++) deck.push({ id: id++, kind: "swap" });
   return deck;
 }
 
-export const isWild = (c: Card) => c.kind === "wild" || c.kind === "wild4" || c.kind === "swap";
+export const isWild = (c: Card) => c.kind === "wild" || c.kind === "wild4";
 
 /** Can `c` go on the pile right now? While a +2/+4 is pending only a stacking card is allowed. */
 export function canPlay(c: Card, t: Pick<CardTable, "discard" | "color" | "pendingDraw">): boolean {

@@ -1,3 +1,4 @@
+import type { Replay, Shot, SportState } from "./sports/types";
 export type TileType = "blue" | "red" | "event" | "box" | "duel" | "fork" | "lighthouse" | "shop" | "wheel" | "landmark";
 export type LandmarkId = "fountain" | "farm" | "cave" | "zipline" | "boat" | "waterfall";
 
@@ -39,9 +40,9 @@ export interface Board {
   nodes: BoardNode[];
 }
 
-// ---- card game ("كواك!") ----
+// ---- card game ("كش!") ----
 export type CardColor = "y" | "r" | "g" | "b";
-export type CardKind = "num" | "skip" | "rev" | "draw2" | "wild" | "wild4" | "swap";
+export type CardKind = "num" | "skip" | "rev" | "draw2" | "wild" | "wild4";
 export interface Card {
   id: number;
   kind: CardKind;
@@ -61,7 +62,7 @@ export interface CardTable {
   deckCount: number;
   /** the player drew a card they can still play right away */
   drawn?: { playerId: string; cardId: number };
-  /** someone just went down to one card: they must shout "كواك!" before anyone catches them */
+  /** someone just went down to one card: they must shout "كش!" before anyone catches them */
   kwak?: { playerId: string; until: number };
   /** penalty points left in hands at the end (lower is better) */
   points?: Record<string, number>;
@@ -82,6 +83,8 @@ export interface Player {
   connected: boolean;
   shielded: boolean;
   stats: { minigameWins: number; stolenFrom: number; risks: number };
+  /** the device's own profile id (localStorage), so each phone can keep its win record against this person */
+  profileId?: string;
 }
 
 export type Phase =
@@ -96,6 +99,7 @@ export type Phase =
   | "shop" // current player is shopping
   | "wheel" // current player stops the wheel of fortune
   | "cards" // card game: waiting for the current player
+  | "sport" // bowling / golf: everyone shooting at the same time
   | "mgIntro"
   | "mgPlay"
   | "mgResults"
@@ -114,10 +118,14 @@ export type Anim =
   | { kind: "jump"; playerId: string; from: number; to: number; jump: "snake" | "ladder" }
   | { kind: "win"; playerId: string }
   | { kind: "landmark"; playerId: string; landmark: LandmarkId; title: string; text: string; delta: number; to?: number }
-  | { kind: "card"; playerId: string; card: Card; color: CardColor; skipped?: string; swapWith?: string; reversed?: boolean }
+  | { kind: "card"; playerId: string; card: Card; color: CardColor; skipped?: string; reversed?: boolean }
   | { kind: "draw"; playerId: string; n: number; why: "draw" | "stack" | "kwak" | "deal" }
   | { kind: "kwak"; playerId: string; by?: string }
   | { kind: "banner"; title: string; text: string }
+  /** bowling / golf: someone shot; the screens play the replay on that player's lane */
+  | { kind: "shot"; playerId: string; replay: Replay }
+  /** bowling / golf: a new frame / hole starts */
+  | { kind: "sportRound"; round: number }
   | { kind: "none" };
 
 export type MinigameId = "tenSeconds" | "dontWake" | "mash" | "pushLuck";
@@ -167,14 +175,25 @@ export interface GameState {
   organizer?: { id: string; name: string; connected: boolean };
   /** server clock at send time, for client clock offset */
   serverNow?: number;
+  /** a big screen (projector) runs this room. Without one, every phone shows the whole game. */
+  screen: boolean;
+  /** bowling / golf while playing */
+  sport?: SportState;
+  /** golf: the map the host picked in the lobby */
+  course?: string;
 }
 
 // ---- socket messages ----
 export interface ClientToServer {
   "screen:create": (cb: (res: { code: string; token: string }) => void) => void;
+  /** a phone makes a room with no big screen and joins it as the host */
+  "room:create": (
+    data: { name?: string; profileId?: string },
+    cb: (res: { ok: true; code: string; playerId: string; token: string } | { ok: false; error: string }) => void,
+  ) => void;
   "screen:resume": (data: { code: string; token: string }, cb: (ok: boolean) => void) => void;
   "player:join": (
-    data: { code: string; name?: string; token?: string },
+    data: { code: string; name?: string; token?: string; profileId?: string },
     cb: (res: { ok: true; playerId: string; token: string } | { ok: false; error: string }) => void,
   ) => void;
   "host:addBot": () => void;
@@ -194,10 +213,12 @@ export interface ClientToServer {
   "player:target": (playerId: string) => void;
   "player:shopBuy": (item: ItemId | null) => void;
   "player:spin": () => void;
-  "card:play": (data: { id: number; color?: CardColor; target?: string }) => void;
+  "card:play": (data: { id: number; color?: CardColor }) => void;
   "card:draw": () => void;
   "card:keep": () => void;
   "card:kwak": () => void;
+  "sport:shot": (shot: Shot) => void;
+  "host:setCourse": (id: string) => void;
   "mg:submit": (data: { score: number }) => void;
   "mg:progress": (value: number) => void;
   "mg:ready": () => void;

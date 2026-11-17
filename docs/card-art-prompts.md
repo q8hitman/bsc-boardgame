@@ -1,4 +1,4 @@
-# بطات النادي في لعبة الكروت "كواك!": برومبتات ChatGPT
+# بطات النادي في لعبة الكروت "كش!": برومبتات ChatGPT
 
 كل كرت عليه بطة من بطات النادي السبع، بوضعية تناسب شغلة الكرت.
 
@@ -24,7 +24,6 @@
 | +٢: "تكاثر" | اللي بعدك يسحب ٢ | رؤى | `draw2.png` |
 | سحر: "قرار الدكتورة" | تختار اللون | د. زهراء | `wild.png` |
 | +٤: "واجب إضافي" | تختار اللون واللي بعدك يسحب ٤ | د. زهراء | `wild4.png` |
-| تبادل: "تبديل العينات" | تبدّل كروتك مع لاعب | عبدالله | `swap.png` |
 | ظهر الكرت | – | البطات كلهم | `back.png` |
 
 ---
@@ -57,9 +56,6 @@
 
 **`wild4.png`: ارفع ورقة Dr. Zahraa**
 > Using the attached character sheet, draw this exact duck character (same grey hijab, black suit, same art style and colours). One single full-body pose, "extra homework": a playful, slightly evil smile with half-closed eyes, holding a tall stack of four thick books in one arm and raising one finger with the other hand. Centered, full body visible, transparent background, no text, no frame, no floor, portrait 1024x1536 PNG
-
-**`swap.png`: ارفع ورقة ABDULLA**
-> Using the attached character sheet, draw this exact duck character (same backwards cap, lab coat, blue gloves, same art style and colours). One single full-body pose, "sample swap": sneaky tiptoe pose with a mischievous squint, looking through a magnifying glass in one hand while hiding a petri dish behind his back with the other. Centered, full body visible, transparent background, no text, no frame, no floor, portrait 1024x1536 PNG
 
 **`back.png`: ارفع كل الأوراق السبع، أو اللي يقبلها منهم**
 > Using the attached duck characters, design a round emblem for the back of a playing card: the heads of all seven ducks peeking out around the rim of a golden circular badge, deep navy blue inside the badge with tiny science doodles (DNA, flask, petri dish, molecule). Same art style, line weight and colours as the sheets. Centered, transparent background outside the badge, no text, square 1024x1024 PNG

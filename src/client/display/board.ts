@@ -22,15 +22,22 @@ class BoardScene extends Phaser.Scene {
   star!: Phaser.GameObjects.Container;
   starNode = -1;
   ready!: () => void;
+  /** phone mode: the canvas is the box's size at device resolution and the camera works in that space */
+  fluid = false;
+  dpr = 1;
+  private following: string | null = null;
+  private userMoved = false;
 
   constructor() {
     super("board");
   }
 
-  init(data: { board: Board; ready: () => void }) {
+  init(data: { board: Board; ready: () => void; fluid?: boolean; dpr?: number }) {
     this.board = data.board;
     this.ready = data.ready;
     this.scale2 = W / data.board.width;
+    this.fluid = !!data.fluid;
+    this.dpr = data.dpr ?? 1;
   }
 
   preload() {
@@ -50,6 +57,13 @@ class BoardScene extends Phaser.Scene {
   create() {
     const cam = this.cameras.main;
     cam.setBounds(0, 0, W, H);
+    if (this.fluid) {
+      // the camera magnifies past 1:1 on a phone: draw text at double resolution so it stays sharp
+      const text = this.add.text.bind(this.add);
+      this.add.text = ((x: number, y: number, t: string | string[], st?: Phaser.Types.GameObjects.Text.TextStyle) => text(x, y, t, st).setResolution(2)) as typeof this.add.text;
+      cam.setBackgroundColor(this.race ? "#24170c" : "#1e7fc4");
+      this.touchControls();
+    }
     this.add.image(0, 0, "map").setOrigin(0).setDisplaySize(W, H);
     this.makeTextures();
     this.ambient();
@@ -57,7 +71,93 @@ class BoardScene extends Phaser.Scene {
     else this.drawTiles();
     this.star = this.makeStar();
     if (this.race) this.star.setVisible(false);
+    if (this.fluid) this.relayout();
     this.ready();
+  }
+
+  // ------------------------------------------------------------ phone camera
+  private get vw() {
+    return this.scale.width / this.dpr;
+  }
+  private get vh() {
+    return this.scale.height / this.dpr;
+  }
+  /** the race grid in world pixels */
+  private get grid() {
+    const [cw, ch] = this.board.cell ?? [94, 89];
+    const ns = this.board.nodes;
+    const xs = ns.map((n) => n.x * this.scale2);
+    const ys = ns.map((n) => n.y * this.scale2);
+    const x0 = Math.min(...xs) - (cw * this.scale2) / 2;
+    const y0 = Math.min(...ys) - (ch * this.scale2) / 2;
+    const x1 = Math.max(...xs) + (cw * this.scale2) / 2;
+    const y1 = Math.max(...ys) + (ch * this.scale2) / 2;
+    return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0 };
+  }
+  /** the map always fills the box (no empty band past its edge), centred on the island / the race grid */
+  private overviewZoom() {
+    return Math.max(this.vw / W, this.vh / H) * this.dpr;
+  }
+  /** pinching out stops here: the whole race grid, or the island filling the box */
+  private minZoom() {
+    if (!this.race) return this.overviewZoom();
+    const g = this.grid;
+    return Math.min(this.overviewZoom(), Math.min(this.vw / g.w, this.vh / g.h) * this.dpr);
+  }
+  /** close-up on the player whose turn it is: pieces about 30+ px, race cell numbers readable */
+  private followZoom() {
+    const z = this.overviewZoom() / this.dpr;
+    return Math.max(z, this.race ? 0.55 : 0.62) * this.dpr;
+  }
+  private overviewCentre() {
+    return this.race ? this.grid : { x: W / 2, y: H / 2 };
+  }
+  /** the box changed size (rotation, address bar): keep the same framing */
+  relayout() {
+    const cam = this.cameras.main;
+    cam.setSize(this.scale.width, this.scale.height);
+    // a zoom/pan still running was aimed at the old size
+    cam.zoomEffect.reset();
+    cam.panEffect.reset();
+    const d = this.following ? this.ducks.get(this.following) : undefined;
+    if (d && !this.userMoved) {
+      cam.setZoom(this.followZoom());
+      cam.startFollow(d.c, true, 0.08, 0.08, 0, 30);
+      return;
+    }
+    if (!this.userMoved) {
+      cam.setZoom(this.overviewZoom());
+      const c = this.overviewCentre();
+      cam.centerOn(c.x, c.y);
+    } else cam.setZoom(Math.max(this.minZoom(), cam.zoom)); // after a pinch: still no empty band in the new shape
+  }
+  /** one finger drags the board, two fingers zoom; the next turn takes the camera back */
+  private touchControls() {
+    const cam = this.cameras.main;
+    this.input.addPointer(1);
+    let pinch: { d: number; z: number } | null = null;
+    const clampZ = (z: number) => Math.max(this.minZoom(), Math.min(1.6 * this.dpr, z));
+    this.input.on("pointermove", (p: Phaser.Input.Pointer) => {
+      const down = [this.input.pointer1, this.input.pointer2].filter((x) => x.isDown);
+      if (down.length === 2) {
+        const d = Phaser.Math.Distance.Between(down[0].x, down[0].y, down[1].x, down[1].y);
+        if (!pinch) pinch = { d, z: cam.zoom };
+        this.userMoved = true;
+        cam.stopFollow();
+        cam.setZoom(clampZ((pinch.z * d) / Math.max(1, pinch.d)));
+        return;
+      }
+      pinch = null;
+      if (!p.isDown) return;
+      const dx = p.x - p.prevPosition.x;
+      const dy = p.y - p.prevPosition.y;
+      if (Math.abs(dx) + Math.abs(dy) < 1) return;
+      this.userMoved = true;
+      cam.stopFollow();
+      cam.scrollX -= dx / cam.zoom;
+      cam.scrollY -= dy / cam.zoom;
+    });
+    this.input.on("pointerup", () => (pinch = null));
   }
 
   /** Race boards: the squares are painted; add the cell numbers (green = ladder foot, red = snake head). */
@@ -334,6 +434,11 @@ class BoardScene extends Phaser.Scene {
   lookAt(node: number, zoom = 1.35) {
     const cam = this.cameras.main;
     const { x, y } = this.pos(node);
+    if (this.fluid) {
+      zoom = this.followZoom();
+      this.following = null;
+      this.userMoved = false;
+    }
     cam.stopFollow();
     cam.pan(x, y, 900, "Sine.easeInOut");
     cam.zoomTo(zoom, 900, "Sine.easeInOut");
@@ -540,7 +645,7 @@ class BoardScene extends Phaser.Scene {
     const d = this.ducks.get(id);
     if (!d) return null;
     const cam = this.cameras.main;
-    return { x: (d.c.x - cam.worldView.x) * cam.zoom, y: (d.c.y - 45 - cam.worldView.y) * cam.zoom };
+    return { x: ((d.c.x - cam.worldView.x) * cam.zoom) / this.dpr, y: ((d.c.y - 45 - cam.worldView.y) * cam.zoom) / this.dpr };
   }
 
   shake(intensity = 0.006) {
@@ -573,6 +678,22 @@ class BoardScene extends Phaser.Scene {
   // ------------------------------------------------------------ camera
   follow(id: string | null, zoom = 1.45) {
     const cam = this.cameras.main;
+    if (this.fluid) {
+      this.userMoved = false;
+      this.following = id;
+      const d = id ? this.ducks.get(id) : undefined;
+      if (!d) {
+        this.following = null;
+        const c = this.overviewCentre();
+        cam.stopFollow();
+        cam.pan(c.x, c.y, 900, "Sine.easeInOut");
+        cam.zoomTo(this.overviewZoom(), 900, "Sine.easeInOut");
+        return;
+      }
+      cam.startFollow(d.c, true, 0.08, 0.08, 0, 30);
+      cam.zoomTo(this.followZoom(), 700, "Sine.easeInOut");
+      return;
+    }
     if (this.race) {
       // the whole grid always fits the screen: never zoom in (that would push cells under the side HUD)
       cam.stopFollow();
@@ -597,8 +718,22 @@ export class BoardView {
   game: Phaser.Game;
   scene!: BoardScene;
   ready: Promise<void>;
+  private fluid: boolean;
+  private parent: HTMLElement | null = null;
 
-  constructor(parent: HTMLElement, board: Board) {
+  /** Phone: match the canvas to its box right now (the ResizeObserver comes a frame later). */
+  fit() {
+    if (!this.fluid || !this.parent || !this.game?.scale) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.round(this.parent.clientWidth * dpr);
+    const h = Math.round(this.parent.clientHeight * dpr);
+    if (!w || !h || (w === this.game.scale.width && h === this.game.scale.height)) return;
+    this.game.scale.resize(w, h);
+    this.scene?.relayout();
+  }
+
+  constructor(parent: HTMLElement, board: Board, opts: { fluid?: boolean } = {}) {
+    this.fluid = !!opts.fluid;
     let resolve!: () => void;
     this.ready = new Promise((r) => (resolve = r));
     this.game = null as unknown as Phaser.Game;
@@ -610,22 +745,39 @@ export class BoardView {
   }
 
   private boot(parent: HTMLElement, board: Board, resolve: () => void) {
+    this.parent = parent;
+    // phone: canvas = the box in device pixels (sharp on retina), shown at the box's CSS size
+    const dpr = this.fluid ? Math.min(2, window.devicePixelRatio || 1) : 1;
+    const size = () => [Math.max(1, Math.round(parent.clientWidth * dpr)), Math.max(1, Math.round(parent.clientHeight * dpr))] as const;
+    const [w, h] = this.fluid ? size() : [W, H];
     this.game = new Phaser.Game({
       type: Phaser.AUTO,
       parent,
-      width: W,
-      height: H,
+      width: w,
+      height: h,
       backgroundColor: "#1e7fc4",
-      scale: { mode: Phaser.Scale.NONE },
+      scale: { mode: Phaser.Scale.NONE, zoom: 1 / dpr },
       render: { antialias: true, roundPixels: false },
       banner: false,
     });
     this.game.scene.add("board", BoardScene, true, {
       board,
+      fluid: this.fluid,
+      dpr,
       ready: () => {
         this.scene = this.game.scene.getScene("board") as BoardScene;
         resolve();
       },
     });
+    if (this.fluid) {
+      const ro = new ResizeObserver(() => {
+        if (!this.game?.canvas?.isConnected) return ro.disconnect();
+        const [nw, nh] = size();
+        if (nw === this.game.scale.width && nh === this.game.scale.height) return;
+        this.game.scale.resize(nw, nh);
+        this.scene?.relayout();
+      });
+      ro.observe(parent);
+    }
   }
 }

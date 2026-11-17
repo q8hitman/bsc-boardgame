@@ -23,12 +23,12 @@ const shuffle = <T>(arr: T[]) => {
   return arr;
 };
 
-/** "كواك!": shedding card game. Server keeps the deck and every hand; phones only ever see their own hand. */
+/** "كش!": shedding card game. Server keeps the deck and every hand; phones only ever see their own hand. */
 export class CardGame {
   private deck: Card[] = [];
   private pile: Card[] = []; // full discard pile, top last
   private hands = new Map<string, Card[]>();
-  private preCalled = new Set<string>(); // shouted "كواك!" before playing their second-to-last card
+  private preCalled = new Set<string>(); // shouted "كش!" before playing their second-to-last card
   private kwakTimer: ReturnType<typeof setTimeout> | null = null;
   private over = false;
 
@@ -139,7 +139,7 @@ export class CardGame {
     return this.s.phase === "cards" && this.current?.id === pid && !this.over;
   }
 
-  play(pid: string, cardId: number, color?: CardColor, target?: string) {
+  play(pid: string, cardId: number, color?: CardColor) {
     if (!this.isTurn(pid)) return;
     const t = this.t;
     const hand = this.hand(pid);
@@ -170,16 +170,6 @@ export class CardGame {
       }
     } else if (card.kind === "draw2") t.pendingDraw += 2;
     else if (card.kind === "wild4") t.pendingDraw += 4;
-    else if (card.kind === "swap") {
-      const others = this.s.players.filter((x) => x.id !== pid);
-      const tgt = others.find((x) => x.id === target) ?? others.sort((a, b) => this.hand(a.id).length - this.hand(b.id).length)[0];
-      if (tgt) {
-        const mine = this.hand(pid);
-        this.hands.set(pid, this.hand(tgt.id));
-        this.hands.set(tgt.id, mine);
-        anim.swapWith = tgt.id;
-      }
-    }
 
     const left = this.hand(pid).length;
     this.sync();
@@ -191,7 +181,7 @@ export class CardGame {
       this.h.schedule(1500, () => this.win(pid));
       return;
     }
-    if (left === 1 && !anim.swapWith) this.openKwak(pid);
+    if (left === 1) this.openKwak(pid);
     else this.preCalled.delete(pid);
     this.h.schedule(card.kind === "num" ? 1100 : 1700, () => {
       this.advance(steps);
@@ -263,7 +253,7 @@ export class CardGame {
     if (cur && this.s.phase === "cards") this.botMove(cur.id);
   }
 
-  // ---------------------------------------------------------------- كواك!
+  // ---------------------------------------------------------------- كش!
   private openKwak(pid: string) {
     if (this.preCalled.delete(pid)) {
       this.h.emit({ kind: "kwak", playerId: pid });
@@ -285,7 +275,7 @@ export class CardGame {
     for (const b of this.s.players) if (b.isBot && b.id !== pid && Math.random() < 0.45) setTimeout(() => this.kwak(b.id), rand(1300, 2900));
   }
 
-  /** The "كواك!" button: shout it for yourself, or catch someone who forgot. */
+  /** The "كش!" button: shout it for yourself, or catch someone who forgot. */
   kwak(pid: string) {
     if (this.over) return;
     const k = this.t.kwak;
@@ -352,7 +342,6 @@ export class CardGame {
     if (!legal.length) return t.pendingDraw > 0 ? this.takePending(pid) : this.draw(pid);
     const next = this.nextId(1);
     const nextLeft = this.hand(next).length;
-    const fewest = Math.min(...this.s.players.filter((x) => x.id !== pid).map((x) => this.hand(x.id).length));
     const score = (c: Card) => {
       let v = 0;
       if (c.kind === "num") v = 10 + (c.n ?? 0) * 0.3;
@@ -360,7 +349,6 @@ export class CardGame {
       if (c.kind === "rev") v = 11;
       if (c.kind === "wild") v = 3;
       if (c.kind === "wild4") v = nextLeft <= 2 ? 28 : 1;
-      if (c.kind === "swap") v = fewest + 2 < hand.length ? 40 : -5;
       if (c.color === t.color) v += 2;
       return v + Math.random();
     };

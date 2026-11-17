@@ -1,7 +1,9 @@
 import "./local.css";
 import { CARD_GAME } from "../../shared/cards";
 import { BOARDS, MAX_PLAYERS } from "../../shared/data";
-import { CARDS_ID, PARTY_DEFAULT_ROUNDS, RACE_DEFAULT_ROUNDS } from "../../shared/rules";
+import { BOARD_SEATS, PARTY_DEFAULT_ROUNDS, RACE_DEFAULT_ROUNDS } from "../../shared/rules";
+import { CATALOG } from "../../shared/catalog";
+import { isSportId, SPORTS } from "../../shared/sports";
 import { startController } from "../controller/controller";
 import { useLocalServer } from "../local-server";
 import { ar, type ClientSocket, esc, setLocalConnect } from "../net";
@@ -9,10 +11,7 @@ import { ar, type ClientSocket, esc, setLocalConnect } from "../net";
 /** One-device mode: the whole game on this PC or phone. The board takes the screen, every person playing here
  *  gets a panel (what would be their phone), and bots fill the other seats. No server, no network: it also runs
  *  as a plain web page (GitHub Pages). */
-const GAMES = [
-  ...Object.values(BOARDS).map((b) => ({ id: b.id, name: b.name, rounds: b.mode === "race" ? RACE_DEFAULT_ROUNDS : PARTY_DEFAULT_ROUNDS })),
-  { id: CARDS_ID, name: `${CARD_GAME.name} (كروت)`, rounds: 0 },
-];
+const GAMES = CATALOG.map((g) => ({ id: g.id, name: g.name, rounds: g.kind !== "board" ? 0 : BOARDS[g.id].mode === "race" ? RACE_DEFAULT_ROUNDS : PARTY_DEFAULT_ROUNDS }));
 const KEYS: [string, string][] = [["a", "s"], ["l", "k"]];
 const load = <T>(k: string, d: T): T => {
   try {
@@ -21,6 +20,12 @@ const load = <T>(k: string, d: T): T => {
     return d;
   }
 };
+
+/** one-device golf has no lobby to pick the map in: a different one each time */
+function pickCourse(room: { state: { boardId: string }; setCourse(id: string): void }) {
+  const courses = isSportId(room.state.boardId) ? SPORTS[room.state.boardId].courses : undefined;
+  if (courses?.length) room.setCourse(courses[Math.floor(Math.random() * courses.length)].id);
+}
 
 export function startLocal(app: HTMLElement) {
   const cfg = load("duck-local", { game: "island", humans: 1, names: ["لاعب ١", "لاعب ٢"], bots: 3, rounds: PARTY_DEFAULT_ROUNDS });
@@ -34,9 +39,13 @@ export function startLocal(app: HTMLElement) {
 
   function setup() {
     const game = GAMES.find((g) => g.id === cfg.game) ?? GAMES[0];
+    // a board always has 4 seats (the computer takes the rest); the card game is free: 2 people alone, or bots too
+    const cards = !BOARDS[game.id]; // card game and sports: free seats
     const maxBots = MAX_PLAYERS - cfg.humans;
-    cfg.bots = Math.min(cfg.bots, maxBots);
-    if (cfg.humans + cfg.bots < 2) cfg.bots = 2 - cfg.humans;
+    if (cards) {
+      cfg.bots = Math.min(cfg.bots, maxBots);
+      if (cfg.humans + cfg.bots < 2) cfg.bots = 2 - cfg.humans;
+    } else cfg.bots = BOARD_SEATS - cfg.humans;
     app.innerHTML = `
       <div class="lp-setup">
         <a class="lp-back" href="./">→ رجوع</a>
@@ -48,7 +57,9 @@ export function startLocal(app: HTMLElement) {
         <div class="lp-seg">${[1, 2].map((n) => `<button class="${cfg.humans === n ? "on" : ""}" data-humans="${n}">${n === 1 ? "بروحي" : "اثنين"}</button>`).join("")}</div>
         <div class="lp-names">${Array.from({ length: cfg.humans }, (_, i) => `<label><span>${cfg.humans > 1 ? `اللاعب ${ar(i + 1)}` : "اسمك"}</span><input data-name="${i}" maxlength="14" value="${esc(cfg.names[i] ?? "")}"></label>`).join("")}</div>
         <h3>لاعبين كمبيوتر</h3>
-        <div class="lp-step"><button id="bm">−</button><b>${ar(cfg.bots)}</b><button id="bp">+</button></div>
+        ${cards
+          ? `<div class="lp-step"><button id="bm">−</button><b>${ar(cfg.bots)}</b><button id="bp">+</button></div>`
+          : `<p class="lp-sub">البورد ${ar(BOARD_SEATS)} لاعبين دايماً، فالكمبيوتر ياخذ ${ar(cfg.bots)} ${cfg.bots === 1 ? "كرسي" : "كراسي"}</p>`}
         ${game.rounds ? `<h3>عدد الجولات</h3><div class="lp-step"><button id="rm">−</button><b>${ar(cfg.rounds)}</b><button id="rp">+</button></div>` : ""}
         ${cfg.humans > 1 ? `<p class="lp-keys">بالميني قيمز: اللاعب الأول يضغط <kbd>A</kbd> (وخيار ثاني <kbd>S</kbd>)، والثاني <kbd>L</kbd> (وخيار ثاني <kbd>K</kbd>). أو اضغطوا على لوحاتكم.</p>` : ""}
         <button class="big-btn green" id="go">يلا نلعب (${ar(cfg.humans + cfg.bots)} لاعبين)</button>
@@ -68,12 +79,12 @@ export function startLocal(app: HTMLElement) {
       cfg.names[Number(i.dataset.name)] = i.value;
       save();
     }));
-    app.querySelector("#bm")!.addEventListener("click", () => {
+    app.querySelector("#bm")?.addEventListener("click", () => {
       cfg.bots = Math.max(cfg.humans > 1 ? 0 : 1, cfg.bots - 1);
       save();
       setup();
     });
-    app.querySelector("#bp")!.addEventListener("click", () => {
+    app.querySelector("#bp")?.addEventListener("click", () => {
       cfg.bots = Math.min(maxBots, cfg.bots + 1);
       save();
       setup();
@@ -95,6 +106,9 @@ export function startLocal(app: HTMLElement) {
     const server = useLocalServer();
     setLocalConnect(() => server.connect() as unknown as ClientSocket);
     document.body.classList.add("lp-on");
+    // one person on a phone: the phone-room layout (board or table above, pad below) instead of a shrunken screen
+    const phone = matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 600;
+    if (cfg.humans === 1 && phone) return playPhone(server);
     app.innerHTML = `
       <div class="lp-game h${cfg.humans}">
         <div class="lp-board" id="lpBoard"></div>
@@ -112,11 +126,28 @@ export function startLocal(app: HTMLElement) {
       const name = (cfg.names[i] ?? "").trim() || `لاعب ${ar(i + 1)}`;
       startController(app.querySelector<HTMLDivElement>(`#lpP${i}`)!, room.code, { name, keys: cfg.humans > 1 ? KEYS[i] : undefined });
       // join one after another so the first person here is the host
-      await until(() => room.state.players.length === i + 1);
+      await until(() => room.state.players.filter((x) => !x.isBot).length === i + 1);
     }
     room.setBoard(cfg.game);
+    pickCourse(room);
     for (let i = 0; i < cfg.bots; i++) room.addBot();
-    if (cfg.rounds && cfg.game !== CARDS_ID) room.setRounds(cfg.rounds);
+    if (cfg.rounds && BOARDS[cfg.game]) room.setRounds(cfg.rounds);
+    room.start();
+  }
+
+  async function playPhone(server: ReturnType<typeof useLocalServer>) {
+    app.innerHTML = `<div id="lpP0"></div><a class="lp-exit ph-exit" href="?local" title="رجوع">✕</a>`;
+    // the room is made the usual way (a screen creates it); this phone then joins as the only person
+    server.connect().emit("screen:create", () => {});
+    while (!server.room) await new Promise((r) => setTimeout(r, 40));
+    const room = server.room;
+    const name = (cfg.names[0] ?? "").trim() || "لاعب ١";
+    startController(app.querySelector<HTMLDivElement>("#lpP0")!, room.code, { name, phone: true });
+    while (room.state.players.length < 1) await new Promise((r) => setTimeout(r, 40));
+    room.setBoard(cfg.game);
+    pickCourse(room);
+    for (let i = 0; i < cfg.bots; i++) room.addBot();
+    if (cfg.rounds && BOARDS[cfg.game]) room.setRounds(cfg.rounds);
     room.start();
   }
 

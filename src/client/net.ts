@@ -1,5 +1,6 @@
 import { io, type Socket } from "socket.io-client";
 import type { ClientToServer, GameState, ServerToClient } from "../shared/types";
+import { serverUrl } from "./config";
 
 export type ClientSocket = Socket<ServerToClient, ClientToServer>;
 
@@ -10,8 +11,13 @@ export const isLocal = () => !!localConnect;
 
 export function connect(): ClientSocket {
   if (localConnect) return localConnect();
-  return io({ transports: ["websocket", "polling"], reconnection: true, reconnectionDelay: 500 });
+  const opts = { transports: ["websocket", "polling"], reconnection: true, reconnectionDelay: 500 };
+  const url = serverUrl();
+  return url ? io(url, opts) : io(opts);
 }
+
+/** The link friends open to join a room: this same page with ?join=CODE (keeps /bsc-boardgame/ on GitHub Pages). */
+export const joinUrl = (code: string) => `${location.origin}${location.pathname}?join=${code}`;
 
 /** Tracks server clock offset so timed minigames start together on every device. */
 export class Clock {
