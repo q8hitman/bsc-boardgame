@@ -1,0 +1,10 @@
+import puppeteer from "puppeteer-core";
+const [file, out] = process.argv.slice(2);
+const b = await puppeteer.launch({ executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: true, args: ["--allow-file-access-from-files"] });
+const p = await b.newPage();
+await p.setViewport({ width: 1600, height: 900, deviceScaleFactor: 1 });
+await p.goto("file:///" + file.replace(/\\/g, "/"), { waitUntil: "networkidle0" });
+await p.evaluate(() => document.fonts.ready);
+await p.screenshot({ path: out, fullPage: true, type: "jpeg", quality: 92 });
+await b.close();
+console.log("ok");

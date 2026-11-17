@@ -289,9 +289,26 @@ body.ph-on { overflow: hidden; }
 .ph.sport > .ph-side { max-height: 96px; }
 .ph.sport .pad-wrap { padding-top: 6px; }
 .ph.sport.land > .ph-side { width: clamp(200px, 26vw, 260px); max-height: none; }
+/* football: the pitch is the whole screen (its own HUD shows the score; the controls are drawn over it) */
+.ph.fb > .ph-side, .ph.fb.land > .ph-side { display: none; }
 .cpick { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 380px; }
 .cpick button { font: inherit; font-weight: 800; font-size: 16px; border: 3px solid var(--ink); border-radius: 14px; background: #fff; padding: 4px 14px; }
 .cpick button.on { background: #ffd23f; }
+
+/* ---------- football lobby: team + club duck */
+.fb-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; max-width: 380px; }
+.fb-teams button { font: inherit; border: 4px solid var(--ink); border-radius: 18px; padding: 6px 8px 8px; color: #fff; display: flex; flex-direction: column; gap: 2px; opacity: .55; box-shadow: 0 4px 0 rgba(0,0,0,.25); }
+.fb-teams button b { font-size: 20px; }
+.fb-teams button small { font-size: 13px; font-weight: 700; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-teams .t0 { background: #2d5fd8; }
+.fb-teams .t1 { background: #d8323a; }
+.fb-teams button.on { opacity: 1; outline: 4px solid #ffd23f; outline-offset: -8px; }
+.fb-chars { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; width: 100%; max-width: 380px; max-height: 300px; overflow-y: auto; padding: 4px; background: #2f8a3c; border: 4px solid var(--ink); border-radius: 18px; }
+.fb-chars button { font: inherit; border: 3px solid transparent; border-radius: 12px; background: rgba(0,0,0,.18); padding: 2px 0 4px; color: #fff; display: flex; flex-direction: column; align-items: center; }
+.fb-chars button i { display: block; width: 64px; height: 72px; background-size: 384px 72px; background-position: 0 0; image-rendering: pixelated; }
+.fb-chars button span { font-size: 13px; font-weight: 800; line-height: 1.1; max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-chars button.on { border-color: #ffd23f; background: rgba(255,210,63,.3); }
+.fb-chars button:disabled { opacity: .45; }
 
 /* ---------- lobby: your record against the people in the room */
 .rivals { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 6px; background: #2b1b45; color: #fff; border-radius: 20px; padding: 10px 12px 12px; box-shadow: 0 5px 0 rgba(0, 0, 0, .25); }

@@ -3,7 +3,7 @@ import { CARD_GAME } from "../../shared/cards";
 import { BOARDS, MAX_PLAYERS } from "../../shared/data";
 import { BOARD_SEATS, PARTY_DEFAULT_ROUNDS, RACE_DEFAULT_ROUNDS } from "../../shared/rules";
 import { CATALOG } from "../../shared/catalog";
-import { isSportId, SPORTS } from "../../shared/sports";
+import { sportCourses } from "../../shared/sports";
 import { startController } from "../controller/controller";
 import { useLocalServer } from "../local-server";
 import { ar, type ClientSocket, esc, setLocalConnect } from "../net";
@@ -23,7 +23,9 @@ const load = <T>(k: string, d: T): T => {
 
 /** one-device golf has no lobby to pick the map in: a different one each time */
 function pickCourse(room: { state: { boardId: string }; setCourse(id: string): void }) {
-  const courses = isSportId(room.state.boardId) ? SPORTS[room.state.boardId].courses : undefined;
+  // football: the quick 3-minute match is the default with the computer
+  if (room.state.boardId === "football") return room.setCourse("quick");
+  const courses = sportCourses(room.state.boardId);
   if (courses?.length) room.setCourse(courses[Math.floor(Math.random() * courses.length)].id);
 }
 
@@ -130,9 +132,15 @@ export function startLocal(app: HTMLElement) {
     }
     room.setBoard(cfg.game);
     pickCourse(room);
-    for (let i = 0; i < cfg.bots; i++) room.addBot();
+    for (let i = 0; i < botsFor(cfg.humans); i++) room.addBot();
     if (cfg.rounds && BOARDS[cfg.game]) room.setRounds(cfg.rounds);
     room.start();
+  }
+  /** football fills both teams with the computer by itself; pool is best one-on-one */
+  function botsFor(humans: number) {
+    if (cfg.game === "football") return 0;
+    if (cfg.game === "pool") return humans > 1 ? 0 : 1;
+    return cfg.bots;
   }
 
   async function playPhone(server: ReturnType<typeof useLocalServer>) {
@@ -146,7 +154,7 @@ export function startLocal(app: HTMLElement) {
     while (room.state.players.length < 1) await new Promise((r) => setTimeout(r, 40));
     room.setBoard(cfg.game);
     pickCourse(room);
-    for (let i = 0; i < cfg.bots; i++) room.addBot();
+    for (let i = 0; i < botsFor(1); i++) room.addBot();
     if (cfg.rounds && BOARDS[cfg.game]) room.setRounds(cfg.rounds);
     room.start();
   }

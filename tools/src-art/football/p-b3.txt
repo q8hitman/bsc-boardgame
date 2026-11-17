@@ -1,0 +1,18 @@
+Use your image generation tool to make ONE image, then copy the generated file into the current folder as b3.png and tell me its path. Do not write any code; only generate the image and copy it.
+
+The image: a pixel-art character sheet for a 2D football game, 3 columns x 2 rows = 6 characters, each alone in its own cell, evenly spaced, nothing overlapping.
+
+STYLE — match EXACTLY the FIRST attached image (the pixel soccer screenshot with the duck footballers): chunky 16-bit pixel art with crisp square pixels, 1-pixel dark brown outlines, cute chibi duck proportions (very big round head, small body), Donald-style eyes, soft cel shading, cream/pale-yellow feathers, orange bill.
+
+CHARACTERS — they are members of a club; their looks are in the SECOND attached image (the club roster, each drawn with a name banner) . Keep each one's hair, headwear and accessories recognisable, but dress ALL of them in the same football kit: royal-blue shirt with white collar and white sleeve trim, white shorts, blue socks, black football boots. No lab coats.
+Top row, left to right:
+1. HORA — big curly blonde hair with a brown bow.
+2. ZAINAB — big curly blonde hair, orange star hair clip, dark headphones around the neck.
+3. AMNA — long blonde braid with a blue bow at its end.
+Bottom row, left to right:
+4. JENAN — long dark-brown curly hair, purple butterfly clip, purple goggles on her head, purple gloves.
+5. MAHA — blonde high ponytail with a navy bow and a white flower, grey goggles on her head, navy gloves.
+6. SAMIYEH — wavy blonde hair, very big pink bow with a little gold atom.
+
+POSE: every character standing in the same idle pose, three-quarter view facing RIGHT, full body visible, feet on the same baseline in each cell.
+BACKGROUND: one flat solid pure magenta (#FF00FF) everywhere — no ground, no shadows, no text, no names, no labels, no grid lines, no borders. Landscape image.

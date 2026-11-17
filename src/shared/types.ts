@@ -1,3 +1,5 @@
+import type { FbFrame, FbInput, FbState } from "./football/types";
+import type { PoolShot } from "./pool/types";
 import type { Replay, Shot, SportState } from "./sports/types";
 export type TileType = "blue" | "red" | "event" | "box" | "duel" | "fork" | "lighthouse" | "shop" | "wheel" | "landmark";
 export type LandmarkId = "fountain" | "farm" | "cave" | "zipline" | "boat" | "waterfall";
@@ -179,8 +181,13 @@ export interface GameState {
   screen: boolean;
   /** bowling / golf while playing */
   sport?: SportState;
-  /** golf: the map the host picked in the lobby */
+  /** golf: the map the host picked in the lobby; football: the match length (FB_MODES id) */
   course?: string;
+  /** football while playing */
+  football?: FbState;
+  /** football lobby: the club character each player picked (player id -> CLUB id) and their team */
+  fbChars?: Record<string, string>;
+  fbTeams?: Record<string, 0 | 1>;
 }
 
 // ---- socket messages ----
@@ -217,7 +224,12 @@ export interface ClientToServer {
   "card:draw": () => void;
   "card:keep": () => void;
   "card:kwak": () => void;
-  "sport:shot": (shot: Shot) => void;
+  "sport:shot": (shot: Shot | PoolShot) => void;
+  /** football: this phone's joystick and buttons */
+  "fb:input": (input: FbInput) => void;
+  /** football lobby: pick a club character / a team */
+  "player:pickChar": (id: string) => void;
+  "player:pickTeam": (team: 0 | 1) => void;
   "host:setCourse": (id: string) => void;
   "mg:submit": (data: { score: number }) => void;
   "mg:progress": (value: number) => void;
@@ -234,4 +246,6 @@ export interface ServerToClient {
   you: (playerId: string) => void;
   hand: (cards: Card[]) => void;
   kicked: (reason: string) => void;
+  /** football: positions of everything that moves, ~15 a second while a match runs */
+  "fb:frame": (f: FbFrame) => void;
 }

@@ -3,9 +3,16 @@ import {
 } from "../shared/data";
 import { CardGame } from "./cards";
 import { SportGame } from "./sports";
-import { isSportId, SPORTS } from "../shared/sports";
-import type { SportId } from "../shared/sports/types";
-import { BOARD_SEATS, CARDS_ID, isBoardGame, isCards, isRace, isSport, PARTY_DEFAULT_ROUNDS, RACE_DEFAULT_ROUNDS, RACE_MG_EVERY, RACE_STEPS } from "../shared/rules";
+import { FootballGame } from "./football";
+import { PoolGame } from "./pool";
+import type { ServerToClient } from "../shared/types";
+import type { GameRunner } from "./runner";
+import { isLaneSport, isSportId, sportCourses } from "../shared/sports";
+import { CLUB, isClubChar } from "../shared/football/club";
+import type { FbInput } from "../shared/football/types";
+import type { PoolShot } from "../shared/pool/types";
+import type { LaneSportId } from "../shared/sports/types";
+import { BOARD_SEATS, CARDS_ID, isBoardGame, isCards, isFootball, isPool, isRace, isSport, POOL_SEATS, PARTY_DEFAULT_ROUNDS, RACE_DEFAULT_ROUNDS, RACE_MG_EVERY, RACE_STEPS } from "../shared/rules";
 import type { GameIO, GameSocket } from "./wire";
 import type {
   Anim, Board, BoardNode, GameState, ItemId, MinigameId, Player,
@@ -54,6 +61,8 @@ export class Room {
   lastActivity = Date.now();
   private cards: CardGame;
   readonly sports: SportGame;
+  readonly football: FootballGame;
+  readonly pool: PoolGame;
 
   constructor(private io: IO, public code: string, opts: { screen: boolean } = { screen: true }) {
     this.board = BOARDS.island;
@@ -83,6 +92,19 @@ export class Room {
       clearBots: () => this.clearBots(),
       setPhase: (ph, ms) => this.setPhase(ph, ms ?? null),
     });
+    const runnerHost = {
+      get state() {
+        return room.state;
+      },
+      emit: (a?: Anim) => this.emit(a),
+      schedule: (ms: number, fn: () => void) => this.schedule(ms, fn),
+      botLater: (ms: number, fn: () => void) => this.botLater(ms, fn),
+      clearBots: () => this.clearBots(),
+      setPhase: (ph: GameState["phase"], ms?: number | null) => this.setPhase(ph, ms ?? null),
+      frame: (f: Parameters<ServerToClient["fb:frame"]>[0]) => this.io.to(this.code).emit("fb:frame", f),
+    };
+    this.football = new FootballGame(runnerHost);
+    this.pool = new PoolGame(runnerHost);
     this.cards = new CardGame({
       get state() {
         return room.state;
@@ -109,7 +131,72 @@ export class Room {
   private get current(): Player | undefined {
     return this.p(this.state.order[this.state.turnIdx]);
   }
+  /** football / pool: the runner for the picked game (bowling, golf and hoops use `sports`) */
+  private get runner(): GameRunner | null {
+    return isFootball(this.state) ? this.football : isPool(this.state) ? this.pool : null;
+  }
+  shoot(playerId: string, shot: PoolShot) {
+    if (isPool(this.state)) this.pool.shoot(playerId, shot);
+    else if (isLaneSport(this.state.boardId)) this.sports.shoot(playerId, shot);
+  }
+  fbInput(playerId: string, input: FbInput) {
+    if (isFootball(this.state)) this.football.input(playerId, input);
+  }
+  /** football lobby: everybody has a club character (no two the same) and a team (kept even) */
+  private syncFootballLobby() {
+    const s = this.state;
+    if (s.phase !== "lobby" || !isFootball(s)) return;
+    const chars: Record<string, string> = {};
+    const teams: Record<string, 0 | 1> = {};
+    const used = new Set<string>();
+    for (const pl of s.players) {
+      const c = s.fbChars?.[pl.id];
+      if (c && isClubChar(c) && !used.has(c)) {
+        chars[pl.id] = c;
+        used.add(c);
+      }
+    }
+    for (const pl of s.players) {
+      if (chars[pl.id]) continue;
+      const free = CLUB.filter((c) => !used.has(c.id));
+      const c = pick(free.length ? free : CLUB).id;
+      chars[pl.id] = c;
+      used.add(c);
+    }
+    const count = [0, 0];
+    for (const pl of s.players) {
+      const t = s.fbTeams?.[pl.id];
+      if (t === 0 || t === 1) {
+        teams[pl.id] = t;
+        count[t]++;
+      }
+    }
+    for (const pl of s.players) {
+      if (teams[pl.id] !== undefined) continue;
+      const t: 0 | 1 = count[0] <= count[1] ? 0 : 1;
+      teams[pl.id] = t;
+      count[t]++;
+    }
+    s.fbChars = chars;
+    s.fbTeams = teams;
+  }
+  pickChar(playerId: string, id: string) {
+    const s = this.state;
+    if (s.phase !== "lobby" || !isFootball(s) || !this.p(playerId) || !isClubChar(id)) return;
+    if (Object.entries(s.fbChars ?? {}).some(([pid, c]) => pid !== playerId && c === id)) return;
+    s.fbChars = { ...s.fbChars, [playerId]: id };
+    this.emit();
+  }
+  pickTeam(playerId: string, team: 0 | 1) {
+    const s = this.state;
+    if (s.phase !== "lobby" || !isFootball(s) || !this.p(playerId) || (team !== 0 && team !== 1)) return;
+    // 4 room players a team at most (the keeper is always the computer)
+    if (s.fbTeams?.[playerId] !== team && s.players.filter((x) => x.id !== playerId && s.fbTeams?.[x.id] === team).length >= 4) return;
+    s.fbTeams = { ...s.fbTeams, [playerId]: team };
+    this.emit();
+  }
   private emit(anim?: Anim) {
+    this.syncFootballLobby();
     if (anim) {
       this.state.seq++;
       this.state.anim = anim;
@@ -137,6 +224,8 @@ export class Room {
   }
   dispose() {
     this.sports?.stop();
+    this.football?.stop();
+    this.pool?.stop();
     this.grace.forEach(clearTimeout);
     this.grace.clear();
     this.cards?.stop();
@@ -179,6 +268,12 @@ export class Room {
     }
     if (this.state.phase !== "lobby") return { ok: false as const, error: "اللعبة بدأت. انتظر الجولة الجاية" };
     if (this.state.players.length >= MAX_PLAYERS) return { ok: false as const, error: "الغرفة مليانة" };
+    if (isPool(this.state) && this.state.players.length >= POOL_SEATS) {
+      // a computer player gives up their seat to a person
+      const bot = [...this.state.players].reverse().find((x) => x.isBot);
+      if (!bot) return { ok: false as const, error: "طاولة البلياردو فيها ٤ بس" };
+      this.state.players = this.state.players.filter((x) => x !== bot);
+    }
     if (isBoardGame(this.state) && this.humans >= BOARD_SEATS) return { ok: false as const, error: "البورد لـ٤ لاعبين بس، والغرفة مليانة" };
     const used = new Set(this.state.players.map((x) => x.duck));
     const duck = DUCKS.findIndex((_, i) => !used.has(i));
@@ -240,7 +335,7 @@ export class Room {
     this.emit();
     // if it was their decision, let the timeout / auto-play handle it quickly
     if (this.state.phase === "turn" && this.current?.id === playerId) this.schedule(2500, () => this.roll(playerId, true));
-    if (this.state.phase === "sport") this.sports.playFor(playerId);
+    if (this.state.phase === "sport") (this.runner ?? this.sports).playFor(playerId);
     // card game: give a dropped phone a few seconds to come back before playing the turn for them
     if (this.state.phase === "cards" && this.current?.id === playerId) this.botLater(6000, () => !pl.connected && this.current?.id === playerId && this.cards.skip());
   }
@@ -318,7 +413,7 @@ export class Room {
     this.emit();
   }
   private pushBot() {
-    if (this.state.phase !== "lobby" || this.state.players.length >= MAX_PLAYERS) return false;
+    if (this.state.phase !== "lobby" || this.state.players.length >= (isPool(this.state) ? POOL_SEATS : MAX_PLAYERS)) return false;
     const used = new Set(this.state.players.map((x) => x.duck));
     const free = DUCKS.map((_, i) => i).filter((i) => !used.has(i));
     const duck = pick(free);
@@ -353,11 +448,20 @@ export class Room {
   setBoard(id: string) {
     if (id === CARDS_ID || isSportId(id)) {
       if (this.state.phase !== "lobby") return;
+      if (id === "pool" && this.humans > POOL_SEATS) return; // too many people for one table
+      if (id === "pool") {
+        // the table seats 4: computer players step aside for people
+        while (this.state.players.length > POOL_SEATS) {
+          const bot = [...this.state.players].reverse().find((x) => x.isBot);
+          if (!bot) break;
+          this.state.players = this.state.players.filter((x) => x !== bot);
+        }
+      }
       // free-seat games start with just the people: they add bots if they want
       if (isBoardGame(this.state)) this.state.players = this.state.players.filter((x) => !x.isBot);
       const was = this.state.boardId;
       this.state.boardId = id;
-      if (isSportId(id) && was !== id) this.state.course = SPORTS[id].courses?.[0]?.id;
+      if (isSportId(id) && was !== id) this.state.course = sportCourses(id)?.[0]?.id;
       this.state.starNode = -1;
       this.emit();
       return;
@@ -391,7 +495,8 @@ export class Room {
   }
 
   start() {
-    if (this.state.phase !== "lobby" || this.state.players.length < 2) return;
+    // football: the computer fills both teams, so one person is enough
+    if (this.state.phase !== "lobby" || this.state.players.length < (isFootball(this.state) ? 1 : 2)) return;
     const s = this.state;
     for (const pl of s.players) {
       pl.node = this.board.start;
@@ -402,7 +507,11 @@ export class Room {
       pl.stats = { minigameWins: 0, stolenFrom: 0, risks: 0 };
     }
     s.bonuses = undefined;
-    if (isSport(s)) return this.sports.start(s.boardId as SportId);
+    if (isSport(s)) {
+      s.football = undefined;
+      if (this.runner) return this.runner.start();
+      return this.sports.start(s.boardId as LaneSportId);
+    }
     s.sport = undefined;
     if (isCards(s)) return this.cards.start();
     s.table = undefined;
@@ -425,6 +534,7 @@ export class Room {
   restart() {
     this.dispose();
     this.state.sport = undefined;
+    this.state.football = undefined;
     this.state.table = undefined;
     this.moving = null;
     this.state.phase = "lobby";
@@ -439,7 +549,7 @@ export class Room {
   /** golf: the host picks the map in the lobby */
   setCourse(id: string) {
     const s = this.state;
-    if (s.phase !== "lobby" || !isSportId(s.boardId) || !SPORTS[s.boardId].courses?.some((c) => c.id === id)) return;
+    if (s.phase !== "lobby" || !sportCourses(s.boardId)?.some((c) => c.id === id)) return;
     s.course = id;
     this.emit();
   }
@@ -447,8 +557,10 @@ export class Room {
   skip() {
     const s = this.state;
     const cur = this.current;
+    // football / pool: skipping the intro or half time starts play now
+    if (this.runner && (s.phase === "intro" || s.phase === "tile")) return this.runner.timeUp();
     if (s.phase === "cards") this.cards.skip();
-    else if (s.phase === "sport") this.sports.timeUp();
+    else if (s.phase === "sport") (this.runner ?? this.sports).timeUp();
     else if (s.phase === "turn" && cur) this.roll(cur.id, true);
     else if (s.phase === "choosePath" && s.pendingChoice) this.choose(s.pendingChoice.playerId, s.pendingChoice.options[0].to, true);
     else if (s.phase === "buyStar" && s.pendingBuy) this.buy(s.pendingBuy.playerId, false, true);

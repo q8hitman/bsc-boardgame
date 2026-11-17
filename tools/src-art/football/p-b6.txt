@@ -1,0 +1,12 @@
+Use your image generation tool to make ONE image, then copy the generated file into the current folder as b6.png and tell me its path. Do not write any code; only generate the image and copy it.
+
+The image: a pixel-art character sheet for a 2D football game, 3 copies of one character side by side in ONE row, each alone in its own cell, evenly spaced, nothing overlapping.
+
+STYLE: match EXACTLY the attached image (an existing sheet of duck footballers from the same game). Same pixel size, same chunky 16-bit pixel art with crisp square pixels, same 1-pixel dark brown outlines, same chibi duck proportions (very big round head, small body), same cel shading, cream/pale-yellow feathers, orange bill, same body size, same pose.
+
+CHARACTER: one more cartoon duck footballer for the same team, dressed in the same football kit as the attached image: royal-blue shirt with white collar and white sleeve trim, white shorts, blue socks with white stripes, black football boots. No lab coats, nothing in their hands.
+Make the SAME duck three times, side by side (identical copies), so I can pick the best one:
+A duck with fluffy blonde hair sticking out from under a navy-blue baseball cap worn forwards (the cap has a small gold atom logo on the front), round black glasses, no gloves.
+
+POSE: all three copies standing in the same idle pose as the attached image, three-quarter view facing RIGHT, full body visible, feet on the same baseline.
+BACKGROUND: one flat solid pure magenta (#FF00FF) everywhere: no ground, no shadows, no text, no names, no labels, no grid lines, no borders. Landscape image.

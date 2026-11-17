@@ -88,7 +88,8 @@ export function recordGame(s: GameState, me: string) {
   order.forEach((p, i) => {
     if (p.id === me || p.isBot || !validId(p.profileId)) return;
     // a tie (same score, or both winners) counts for nobody
-    if (myScore !== null && myScore === score(s, p.id)) return;
+    // (football decided on penalties: same goals, but one side won, so it is not a tie)
+    if (myScore !== null && myScore === score(s, p.id) && won === !!s.winnerIds?.includes(p.id)) return;
     if (won && s.winnerIds?.includes(p.id)) return;
     if (!Object.hasOwn(st.rivals, p.profileId)) st.rivals[p.profileId] = { name: p.name, duck: p.duck, last: 0, w: 0, l: 0, games: {} };
     const r = st.rivals[p.profileId];

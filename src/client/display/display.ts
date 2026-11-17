@@ -3,9 +3,11 @@ import "./phone.css";
 import QRCode from "qrcode";
 import { BOARDS, DUCKS, ITEMS, LANDMARKS, MAX_PLAYERS, MINIGAMES, STAR_COST, WHEEL } from "../../shared/data";
 import { CARD_GAME } from "../../shared/cards";
-import { isCards, isRace, isSport, ranked } from "../../shared/rules";
+import { footballResult, isCards, isRace, isSport, ranked, sportUnit } from "../../shared/rules";
 import { gameName } from "../../shared/catalog";
 import type { Shot, SportId } from "../../shared/sports/types";
+import type { FbFrame, FbInput } from "../../shared/football/types";
+import type { PoolShot } from "../../shared/pool/types";
 import { loadSportView, type SportView } from "../sports/view";
 import { placeholderView } from "../sports/placeholder";
 import type { GameState, Player } from "../../shared/types";
@@ -26,7 +28,11 @@ export interface DisplayOpts {
 export interface DisplayHandle {
   state(s: GameState): void;
   /** bowling / golf on a phone: let this player shoot by dragging on the view (null = not now) */
-  sportInput(cb: ((shot: Shot) => void) | null): void;
+  sportInput(cb: ((shot: Shot | PoolShot) => void) | null): void;
+  /** football: a position snapshot (the phone room's own socket feeds it in) */
+  frame(f: FbFrame): void;
+  /** football on a phone: on-screen joystick + buttons over the pitch (null = watch only) */
+  fbControl(cb: ((input: FbInput) => void) | null): void;
 }
 
 export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): Promise<DisplayHandle> {
@@ -111,6 +117,7 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
       else create();
     });
     sock.on("state", (s) => onState(s));
+    sock.on("fb:frame", (f) => sportView?.fbFrame?.(f));
   }
   function onState(s: GameState) {
     if (phone) {
@@ -295,8 +302,10 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
         sfx.fanfare();
         const p = pl(a.playerId);
         const sp = s.sport;
-        if (p && sp)
-          modal(`<div class="panel"><div class="icon">${icon("trophy", 130)}</div><h1>${esc(p.name)} فاز!</h1><p>${ar(sp.total[p.id] ?? 0)} ${sp.better === "high" ? "نقطة" : "ضربة"}</p><div class="icon">${tokenImg(p.duck, 150)}</div></div>`, 4000);
+        const fr = footballResult(s);
+        if (fr) modal(`<div class="panel"><div class="icon">${icon("trophy", 130)}</div><h1>${esc(fr.title)}</h1><p>الأزرق ${fr.score} الأحمر</p></div>`, 4000);
+        else if (p && sp)
+          modal(`<div class="panel"><div class="icon">${icon("trophy", 130)}</div><h1>${esc(p.name)} فاز!</h1><p>${ar(sp.total[p.id] ?? 0)} ${sportUnit(s)}</p><div class="icon">${tokenImg(p.duck, 150)}</div></div>`, 4000);
         return;
       }
     }
@@ -427,7 +436,8 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
         {
           const curP = ["turn", "choosePath", "buyStar", "pickTarget", "shop", "wheel"].includes(s.phase) ? pl(s.order[s.turnIdx]) : undefined;
           // sports: the view has its own HUD, so announcements go away by themselves
-          banner(a.title, a.text, isSport(s) ? 3800 : 0, curP?.duck);
+          // football draws its own goal / penalty banners over the pitch: only the opening one shows here
+          if (!(s.boardId === "football" && s.phase !== "intro")) banner(a.title, a.text, isSport(s) ? 3800 : 0, curP?.duck);
         }
         if (s.phase === "intro") {
           board.follow(null);
@@ -457,9 +467,10 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
     const sport = isSport(s);
     $("game").classList.toggle("hidden", cards || sport);
     $("table").classList.toggle("hidden", !cards);
-    $("sport").classList.toggle("hidden", !sport);
+    // sports views (Phaser / three.js) only run once the game starts: nothing burns battery in the lobby
+    $("sport").classList.toggle("hidden", !sport || !inGame);
     if (cards) table.render(s);
-    if (sport) syncSport(s);
+    if (sport && inGame) syncSport(s);
     else dropSport();
     // board pieces
     if (cards || sport) board.sync([], undefined);
@@ -838,11 +849,12 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
     const colors = ["#ffd23f", "#c9d3e0", "#e3a26b"];
     sfx.fanfare();
     if (!isCards(s) && !isSport(s)) setTimeout(() => board.celebrate(rk[0].id), 400);
-    modal(`<div class="panel"><div class="icon">${icon("trophy", 130)}</div><h1>${esc(rk[0].name)} فاز!</h1>
+    const fr = footballResult(s);
+    modal(`<div class="panel"><div class="icon">${icon("trophy", 130)}</div><h1>${fr ? `${esc(fr.title)} ${fr.score}` : `${esc(rk[0].name)} فاز!`}</h1>
       <div class="podium">${order
         .map((p) => {
           const r = rk.indexOf(p);
-          return `<div class="pod p${r + 1}"><img src="${duckImg(p)}" alt=""><div class="nm">${esc(p.name)}</div><div class="sc">${isSport(s) ? `${ar(s.sport?.total[p.id] ?? 0)} ${s.sport?.better === "high" ? "نقطة" : "ضربة"}` : isCards(s) ? (s.table?.counts[p.id] ? `باقي ${ar(s.table.counts[p.id])} كروت` : "خلّص كروته!") : isRace(s) ? `خانة ${ar(p.node + 1)}` : `${icon("star")}${ar(p.stars)} · ${icon("bread")}${ar(p.crumbs)}`}</div><div class="blk" style="height:${heights[r]}px;background:${colors[r]}">${ar(r + 1)}</div></div>`;
+          return `<div class="pod p${r + 1}"><img src="${duckImg(p)}" alt=""><div class="nm">${esc(p.name)}</div><div class="sc">${isSport(s) ? `${ar(s.sport?.total[p.id] ?? 0)} ${sportUnit(s)}` : isCards(s) ? (s.table?.counts[p.id] ? `باقي ${ar(s.table.counts[p.id])} كروت` : "خلّص كروته!") : isRace(s) ? `خانة ${ar(p.node + 1)}` : `${icon("star")}${ar(p.stars)} · ${icon("bread")}${ar(p.crumbs)}`}</div><div class="blk" style="height:${heights[r]}px;background:${colors[r]}">${ar(r + 1)}</div></div>`;
         })
         .join("")}</div><p>${isLocal() ? "تقدر تبدأ لعبة جديدة من لوحتك" : "المنظم يقدر يبدأ لعبة جديدة من تلفونه"}</p></div>`);
   }
@@ -851,7 +863,8 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
   let sportView: SportView | null = null;
   let sportId = "";
   let sportLoading = "";
-  let sportCb: ((shot: Shot) => void) | null = null;
+  let sportCb: ((shot: Shot | PoolShot) => void) | null = null;
+  let fbCb: ((input: FbInput) => void) | null = null;
   function syncSport(s: GameState) {
     const id = s.boardId as SportId;
     if (sportView && sportId === id) return sportView.render(s);
@@ -860,7 +873,7 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
     sportView?.destroy();
     sportView = null;
     const box = $("sport");
-    const vopts = { mode: phone ? ("personal" as const) : ("screen" as const), me: opts.me ?? (() => ""), sound: true };
+    const vopts = { mode: phone ? ("personal" as const) : ("screen" as const), me: opts.me ?? (() => ""), sound: true, serverNow: () => Date.now() + clock.offset };
     void loadSportView(id)
       .then((make) => {
         if (sportLoading !== id) return; // another game was picked meanwhile
@@ -874,6 +887,7 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
           sportView = placeholderView(box, vopts, gameName(id));
         }
         sportView.setInput(sportCb);
+        sportView.setControl?.(fbCb);
         if (st && isSport(st)) sportView.render(st);
       })
       .catch(() => (sportLoading = ""));
@@ -892,6 +906,13 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
     sportInput(cb) {
       sportCb = cb;
       sportView?.setInput(cb);
+    },
+    frame(f) {
+      sportView?.fbFrame?.(f);
+    },
+    fbControl(cb) {
+      fbCb = cb;
+      sportView?.setControl?.(cb);
     },
   };
 }

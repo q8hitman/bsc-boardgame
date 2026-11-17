@@ -1,8 +1,13 @@
 /** Sports games (bowling, mini-golf): everyone plays at the same time, the server runs the physics and sends a
  *  replay, phones and the projector only draw it (floating point differs between browsers, so nobody re-simulates). */
 
-export type SportId = "bowling" | "golf" | "hoops";
-export const SPORT_IDS: SportId[] = ["bowling", "golf", "hoops"];
+/** "lane" sports: everyone plays at once on their own lane (SportRules + server/sports.ts). */
+export type LaneSportId = "bowling" | "golf" | "hoops";
+export const LANE_SPORT_IDS: LaneSportId[] = ["bowling", "golf", "hoops"];
+/** Every game that uses the sports plumbing (phase "sport", GameState.sport, a SportView). Football and pool have
+ *  their own server runners (server/football.ts, server/pool.ts). */
+export type SportId = LaneSportId | "football" | "pool";
+export const SPORT_IDS: SportId[] = [...LANE_SPORT_IDS, "football", "pool"];
 
 /** One shot from a phone. Normalised so every screen size sends the same thing.
  *  - `aim`: radians. Bowling: 0 = straight down the lane, + = to the right. Golf: world direction (0 = +x, π/2 = +z).

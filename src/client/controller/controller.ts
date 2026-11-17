@@ -1,9 +1,12 @@
 import "./controller.css";
 import { BOARDS, DUCKS, ITEMS, MINIGAMES, WHEEL } from "../../shared/data";
 import { CARD_GAME } from "../../shared/cards";
-import { BOARD_SEATS, isBoardGame, isCards, isRace, isSport, ranked } from "../../shared/rules";
+import { BOARD_SEATS, footballResult, isBoardGame, isCards, isRace, isSport, ranked, sportUnit } from "../../shared/rules";
 import { CATALOG, gameName } from "../../shared/catalog";
-import { SPORTS } from "../../shared/sports";
+import { sportCourses } from "../../shared/sports";
+import { CLUB } from "../../shared/football/club";
+import type { FbInput } from "../../shared/football/types";
+import type { PoolShot } from "../../shared/pool/types";
 import type { Shot, SportId } from "../../shared/sports/types";
 import { loadSportView, type SportView } from "../sports/view";
 import { createCardPad } from "./cardpad";
@@ -129,6 +132,12 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     }
   });
   let latest: GameState | null = null;
+  // football: positions of everything ~15 a second, straight to whichever view is drawing the pitch
+  sock.on("fb:frame", (f) => {
+    disp?.frame(f);
+    sportView?.fbFrame?.(f);
+  });
+  const sendFb = (i: FbInput) => sock.emit("fb:input", i);
   sock.on("state", (s) => {
     clock.update(s);
     latest = s; // the server can send state just before the join is confirmed
@@ -154,6 +163,8 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     root.classList.toggle("ph", show);
     root.classList.toggle("cards", show && isCards(s));
     root.classList.toggle("sport", show && isSport(s) && s.phase !== "end");
+    // football and pool: the game takes the whole phone (their own HUD shows turns, scores and the controls)
+    root.classList.toggle("fb", show && (s.boardId === "football" || s.boardId === "pool") && s.phase !== "end" && s.phase !== "final");
     root.classList.toggle("land", innerWidth > innerHeight);
     document.body.classList.toggle("ph-on", show);
     view.classList.toggle("hidden", !show);
@@ -287,7 +298,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
   function renderTop(s: GameState, p: Player) {
     top.classList.remove("hidden");
     top.innerHTML = `<img src="${duckImg(p)}" alt=""><div class="nm">${esc(p.name)}</div>
-      ${s.phase === "lobby" ? "" : isSport(s) ? `<div class="st"><span>${ar(s.sport?.total[p.id] ?? 0)} ${s.sport?.better === "high" ? "نقطة" : "ضربة"}</span></div>` : isCards(s) ? `<div class="st"><span>${ar(s.table?.counts[p.id] ?? 0)} كروت</span></div>` : isRace(s) ? `<div class="st"><span>خانة ${ar(p.node + 1)}</span></div>` : `<div class="st"><span>${icon("star", 24)}${ar(p.stars)}</span><span>${icon("bread", 24)}${ar(p.crumbs)}</span></div>`}`;
+      ${s.phase === "lobby" ? "" : isSport(s) ? `<div class="st"><span>${ar(s.sport?.total[p.id] ?? 0)} ${sportUnit(s)}</span></div>` : isCards(s) ? `<div class="st"><span>${ar(s.table?.counts[p.id] ?? 0)} كروت</span></div>` : isRace(s) ? `<div class="st"><span>خانة ${ar(p.node + 1)}</span></div>` : `<div class="st"><span>${icon("star", 24)}${ar(p.stars)}</span><span>${icon("bread", 24)}${ar(p.crumbs)}</span></div>`}`;
     wrap.style.setProperty("--duck-bg", DUCKS[p.duck].color);
   }
 
@@ -480,16 +491,19 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
           .filter((x) => x.id !== me && !x.isBot && x.profileId)
           .map((x) => {
             const r = rivalOf(x.profileId);
-            const tie = (isSport(s) && s.sport?.total[x.id] === s.sport?.total[me]) || (won && !!s.winnerIds?.includes(x.id));
-            const beat = order.indexOf(x) > rank;
-            return r ? `<div class="rv">${tokenImg(x.duck, 34)}<span class="rv-nm">${esc(x.name)}</span><small>${tie ? "تعادلتوا" : beat ? "فزت عليه" : "فاز عليك"}</small><b class="rv-score"><i>${ar(r.w)}</i> – <i>${ar(r.l)}</i></b></div>` : "";
+            const mate = s.boardId === "football" && s.fbTeams?.[x.id] === s.fbTeams?.[me];
+            const tie = !mate && ((isSport(s) && s.sport?.total[x.id] === s.sport?.total[me] && won === !!s.winnerIds?.includes(x.id)) || (won && !!s.winnerIds?.includes(x.id)));
+            const beat = won ? !s.winnerIds?.includes(x.id) : order.indexOf(x) > rank;
+            return r ? `<div class="rv">${tokenImg(x.duck, 34)}<span class="rv-nm">${esc(x.name)}</span><small>${mate ? "بفريقك" : tie ? "تعادلتوا" : beat ? "فزت عليه" : "فاز عليك"}</small><b class="rv-score"><i>${ar(r.w)}</i> – <i>${ar(r.l)}</i></b></div>` : "";
           })
           .join("");
         const detail = isSport(s)
-          ? `${ar(s.sport?.total[me] ?? 0)} ${s.sport?.better === "high" ? "نقطة" : "ضربة"}`
+          ? `${ar(s.sport?.total[me] ?? 0)} ${sportUnit(s)}`
           : isCards(s) ? (rank === 0 ? "خلّصت كروتك قبل الكل!" : `باقي عندك ${ar(s.table?.counts[me] ?? 0)} كروت`)
           : isRace(s) ? `وصلت خانة ${ar(p.node + 1)}` : `${icon("star", 26)}${ar(p.stars)} · ${icon("bread", 26)}${ar(p.crumbs)}`;
-        main.innerHTML = `${won ? icon("trophy", 130) : tokenImg(p.duck, 150)}<h1>${won ? "انت الفايز!" : `خلصت بالمركز ${ar(rank + 1)}`}</h1>
+        const fr = footballResult(s);
+        const headline = fr ? (fr.team === -1 ? `تعادل! ${fr.score}` : won ? `فزتوا! ${fr.score}` : `خسرتوا ${fr.score}`) : won ? "انت الفايز!" : `خلصت بالمركز ${ar(rank + 1)}`;
+        main.innerHTML = `${won ? icon("trophy", 130) : tokenImg(p.duck, 150)}<h1>${headline}</h1>
           <p>${detail}</p>
           ${rows ? `<div class="rivals"><h3>السجل بعد هاللعبة</h3>${rows}</div>` : ""}
           ${p.isHost ? `<button class="big-btn" id="again">لعبة جديدة</button>` : `<p>بانتظار المنظم…</p>`}`;
@@ -507,12 +521,13 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
   let sportLoading = false;
   let sportBox: HTMLDivElement | null = null;
   let sportSeq = -1; // last animation handed to the pad's own view (state repeats it until the next one)
-  const shoot = (shot: Shot) => {
+  const shoot = (shot: Shot | PoolShot) => {
     buzz(30);
     sock.emit("sport:shot", shot);
   };
   function stopSportPad() {
     disp?.sportInput(null);
+    disp?.fbControl(null);
     sportView?.destroy();
     sportView = null;
     sportViewId = "";
@@ -524,20 +539,24 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     const id = s.boardId as SportId;
     const rk = ranked(s).findIndex((x) => x.id === me) + 1;
     const total = sp?.total[me] ?? 0;
-    const unit = sp?.better === "high" ? "نقطة" : "ضربة";
+    const unit = sportUnit(s);
     const what = id === "golf" ? "اسحب ورا وفك" : "اسحب الكرة لفوق وفكها";
     const status =
       s.phase === "intro" ? "استعد…"
       : s.phase === "final" ? (s.winnerIds?.includes(me) ? "فزت!" : "خلصت اللعبة")
-      : s.phase === "tile" ? ({ bowling: "الفريم الجاي…", golf: "الحفرة الجاية…", hoops: "الجولة الجاية…" }[id] ?? "")
+      : s.phase === "tile" ? ({ bowling: "الفريم الجاي…", golf: "الحفرة الجاية…", hoops: "الجولة الجاية…", football: "", pool: "" }[id] ?? "")
+      : id === "football" ? "يلا! العب"
+      : id === "pool" ? (canShoot ? "دورك! اسحب الكيو وفك" : `دور ${esc(s.players.find((x) => s.sport?.open.includes(x.id))?.name ?? "")}`)
       : canShoot ? `دورك! ${what}`
       : "خلصت هالجولة · انتظر الباقين";
     const line = `<div class="sp-line ${canShoot ? "go" : ""}"><b>${esc(status)}</b><span>${ar(total)} ${unit} · المركز ${ar(rk)}</span></div>`;
     const inShell = root.classList.contains("ph");
+    const playing = s.phase === "sport" || s.phase === "intro";
     if (inShell) {
       if (sportView) stopSportPad();
       main.innerHTML = line;
       disp?.sportInput(canShoot ? shoot : null);
+      disp?.fbControl(id === "football" && playing ? sendFb : null);
       return;
     }
     // own view in the pad
@@ -555,6 +574,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
         sportView.anim(s);
       }
       sportView.setInput(canShoot ? shoot : null);
+      sportView.setControl?.(id === "football" && playing ? sendFb : null);
       return;
     }
     if (sportLoading) return;
@@ -565,11 +585,12 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     }).then((make) => {
       sportLoading = false;
       if (!make || !sportBox) return;
-      sportView = make(sportBox, { mode: "personal", me: () => me, sound: false });
+      sportView = make(sportBox, { mode: "personal", me: () => me, sound: false, serverNow: () => Date.now() + clock.offset, controllerOnly: id === "football" });
       sportViewId = id;
       if (st && isSport(st)) {
         sportView.render(st);
         sportView.setInput(st.phase === "sport" && st.sport?.open.includes(me) ? shoot : null);
+        sportView.setControl?.(id === "football" && (st.phase === "sport" || st.phase === "intro") ? sendFb : null);
       }
     });
     void p;
@@ -603,6 +624,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       <img class="duck" src="${duckImg(p)}" alt="">
       <h1>${esc(DUCKS[p.duck].name)}</h1>${DUCKS[p.duck].ref ? `<p class="ref">من ${esc(DUCKS[p.duck].ref!)}</p>` : ""}
       <input id="nm" maxlength="14" value="${esc(p.name)}" />
+      ${s.boardId === "football" ? footballLobby(s) : ""}
       <p>اختار قطعتك</p>
       <div class="picker">${DUCKS.map((d, i) => {
         const owner = s.players.find((x) => x.duck === i);
@@ -616,7 +638,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
            ${boardPicker(s)}
            ${isBoardGame(s) ? `<div class="stepper"><button id="rm">−</button><span>${ar(s.maxRounds)} جولات</span><button id="rp">+</button></div>` : coursePicker(s)}
            ${seatTools(s)}
-           <button class="big-btn green" id="start" ${s.players.length < 2 ? "disabled style='opacity:.5'" : ""}>ابدأ اللعبة (${ar(s.players.length)} لاعبين)</button>`
+           <button class="big-btn green" id="start" ${s.players.length < (s.boardId === "football" ? 1 : 2) ? "disabled style='opacity:.5'" : ""}>ابدأ اللعبة (${ar(s.players.length)} لاعبين)</button>`
         : `<p>بانتظار المنظم يبدأ… (${ar(s.players.length)} لاعبين)</p>`}`;
     const nm = main.querySelector<HTMLInputElement>("#nm")!;
     nm.onchange = () => {
@@ -635,9 +657,34 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     main.querySelector("#ab")?.addEventListener("click", () => sock.emit("host:addBot"));
     main.querySelector("#rb")?.addEventListener("click", () => sock.emit("host:removeBot"));
     main.querySelector("#start")?.addEventListener("click", () => sock.emit("host:start"));
+    main.querySelectorAll<HTMLButtonElement>("[data-char]").forEach((b) => (b.onclick = () => {
+      buzz(20);
+      sock.emit("player:pickChar", b.dataset.char!);
+    }));
+    main.querySelectorAll<HTMLButtonElement>("[data-team]").forEach((b) => (b.onclick = () => {
+      buzz(20);
+      sock.emit("player:pickTeam", Number(b.dataset.team) === 1 ? 1 : 0);
+    }));
     main.querySelector("#org")?.addEventListener("click", () => sock.emit("host:setPlaying", false));
     bindBoardPicker();
     bindShare(s);
+  }
+
+  /** Football: your team (blue / red) and which club duck you play. The computer fills both teams up to 5. */
+  function footballLobby(s: GameState) {
+    const mine = s.fbChars?.[me];
+    const team = s.fbTeams?.[me] ?? 0;
+    const names = (t: 0 | 1) => s.players.filter((x) => (s.fbTeams?.[x.id] ?? 0) === t).map((x) => esc(x.name)).join("، ") || "الكمبيوتر";
+    const taken = new Map(Object.entries(s.fbChars ?? {}).map(([pid, c]) => [c, pid]));
+    return `<p>فريقك</p><div class="fb-teams">
+        <button class="t0 ${team === 0 ? "on" : ""}" data-team="0"><b>الأزرق</b><small>${names(0)}</small></button>
+        <button class="t1 ${team === 1 ? "on" : ""}" data-team="1"><b>الأحمر</b><small>${names(1)}</small></button>
+      </div>
+      <p>شخصيتك بالملعب</p><div class="fb-chars">${CLUB.map((c) => {
+        const owner = taken.get(c.id);
+        const by = owner && owner !== me ? s.players.find((x) => x.id === owner)?.name : "";
+        return `<button class="${mine === c.id ? "on" : ""}" data-char="${c.id}" ${by ? "disabled" : ""}><i style="background-image:url(assets/football/${c.id}-${team === 1 ? "red" : "blue"}.png)"></i><span>${esc(by || c.name)}</span></button>`;
+      }).join("")}</div>`;
   }
 
   /** Bots: the card game lets the host choose (none at all is fine), a board always has 4 seats and fills them itself. */
@@ -652,9 +699,9 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
 
   /** Golf: the host picks the map. */
   function coursePicker(s: GameState) {
-    const courses = isSport(s) ? SPORTS[s.boardId as SportId].courses : undefined;
+    const courses = isSport(s) ? sportCourses(s.boardId) : undefined;
     if (!courses || courses.length < 2) return "";
-    return `<p>اختار الملعب</p><div class="cpick">${courses.map((c) => `<button class="${s.course === c.id ? "on" : ""}" data-course="${c.id}">${esc(c.name)}</button>`).join("")}</div>`;
+    return `<p>${s.boardId === "football" ? "مدة المباراة" : "اختار الملعب"}</p><div class="cpick">${courses.map((c) => `<button class="${s.course === c.id ? "on" : ""}" data-course="${c.id}">${esc(c.name)}</button>`).join("")}</div>`;
   }
 
   /** Host chooses the board in the lobby. More than 4 people: only the card game fits. */
@@ -663,7 +710,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     const games = CATALOG;
     return `<p>اختار اللعبة</p><div class="bpick">${games
       .map((b) => {
-        const full = b.kind === "board" && people > BOARD_SEATS;
+        const full = (b.kind === "board" && people > BOARD_SEATS) || (b.id === "pool" && people > 4);
         const g = gameStats(b.id);
         return `<button class="${s.boardId === b.id ? "on" : ""}" data-board="${b.id}" ${full ? "disabled" : ""}><img src="assets/thumbs/${b.id}.jpg" alt=""><span>${esc(b.name)}${full ? " (٤ بس)" : ""}</span>${g.played ? `<small>فزت ${ar(g.won)} من ${ar(g.played)}</small>` : ""}</button>`;
       })
@@ -720,7 +767,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       : ["turn", "moving", "tile", "choosePath", "buyStar", "pickTarget", "shop", "wheel", "cards"].includes(s.phase) && cur ? `${PHASE_TXT[s.phase]} ${cur.name}`
       : PHASE_TXT[s.phase] ?? "";
     main.innerHTML = `<p style="opacity:.75">${isSport(s) ? `${esc(gameName(s.boardId))} · الجولة ${ar((s.sport?.round ?? 0) + 1)} من ${ar(s.sport?.rounds ?? 0)}` : isCards(s) ? `${CARD_GAME.name} ${CARD_GAME.sub}` : `الجولة ${ar(s.round)} من ${ar(s.maxRounds)}`}</p><h2>${esc(status)}</h2>
-      <div class="org-rank">${rk.map((x, i) => `<div class="${x.id === cur?.id ? "cur" : ""}"><b>${ar(i + 1)}</b>${tokenImg(x.duck, 40)}<span>${esc(x.name)}</span>${isSport(s) ? `<span>${ar(s.sport?.total[x.id] ?? 0)} ${s.sport?.better === "high" ? "نقطة" : "ضربة"}</span><span></span>` : isCards(s) ? `<span>${ar(s.table?.counts[x.id] ?? 0)} كروت</span><span></span>` : isRace(s) ? `<span>خانة ${ar(x.node + 1)}</span><span></span>` : `<span>${icon("star", 22)}${ar(x.stars)}</span><span>${icon("bread", 22)}${ar(x.crumbs)}</span>`}</div>`).join("")}</div>
+      <div class="org-rank">${rk.map((x, i) => `<div class="${x.id === cur?.id ? "cur" : ""}"><b>${ar(i + 1)}</b>${tokenImg(x.duck, 40)}<span>${esc(x.name)}</span>${isSport(s) ? `<span>${ar(s.sport?.total[x.id] ?? 0)} ${sportUnit(s)}</span><span></span>` : isCards(s) ? `<span>${ar(s.table?.counts[x.id] ?? 0)} كروت</span><span></span>` : isRace(s) ? `<span>خانة ${ar(x.node + 1)}</span><span></span>` : `<span>${icon("star", 22)}${ar(x.stars)}</span><span>${icon("bread", 22)}${ar(x.crumbs)}</span>`}</div>`).join("")}</div>
       ${s.phase === "end"
         ? `<button class="big-btn" id="again">لعبة جديدة</button>`
         : `<button class="big-btn alt" id="oskip">تخطي ⏭</button><p style="opacity:.7;font-size:15px">إذا أحد علّق أو طوّل، التخطي يكمل عنه</p>`}`;

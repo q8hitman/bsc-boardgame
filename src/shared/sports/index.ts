@@ -1,14 +1,15 @@
 import { BOWLING } from "./bowling";
 import { GOLF } from "./golf";
 import { HOOPS } from "./hoops";
-import type { Replay, Shot, SportId } from "./types";
+import { FB_MODES } from "../football/types";
+import type { LaneSportId, Replay, Shot, SportId } from "./types";
 
 export * from "./types";
 
 /** What a sport implements. The generic SportGame (src/server/sports.ts) runs rounds, timers and bots with it.
  *  `L` = one player's lane / ball state (sent to every screen in SportState.lanes). Everything must be plain JSON. */
 export interface SportRules<L> {
-  id: SportId;
+  id: LaneSportId;
   /** shown in menus */
   name: string;
   sub: string;
@@ -34,5 +35,19 @@ export interface SportRules<L> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const SPORTS: Record<SportId, SportRules<any>> = { bowling: BOWLING, golf: GOLF, hoops: HOOPS };
-export const isSportId = (id: string): id is SportId => id in SPORTS;
+export const SPORTS: Record<LaneSportId, SportRules<any>> = { bowling: BOWLING, golf: GOLF, hoops: HOOPS };
+export const isLaneSport = (id: string): id is LaneSportId => Object.hasOwn(SPORTS, id);
+export const isSportId = (id: string): id is SportId => isLaneSport(id) || id === "football" || id === "pool";
+/** what the host picks in the lobby: golf maps, football match lengths (GameState.course holds the id) */
+export function sportCourses(id: string): { id: string; name: string }[] | undefined {
+  if (id === "football") return FB_MODES;
+  return isLaneSport(id) ? SPORTS[id].courses : undefined;
+}
+/** the name shown in menus for every game on the sports plumbing */
+export const SPORT_NAMES: Record<SportId, string> = {
+  bowling: BOWLING.name,
+  golf: GOLF.name,
+  hoops: HOOPS.name,
+  football: "كورة البط",
+  pool: "بلياردو البط",
+};

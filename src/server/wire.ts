@@ -97,7 +97,14 @@ export function wireSocket(io: GameIO, sock: GameSocket, rooms: Map<string, Room
   sock.on("card:draw", () => me() && room()?.cardGame.draw(me()!));
   sock.on("card:keep", () => me() && room()?.cardGame.keep(me()!));
   sock.on("card:kwak", () => me() && room()?.cardGame.kwak(me()!));
-  sock.on("sport:shot", (shot) => me() && room()?.sports.shoot(me()!, shot));
+  sock.on("sport:shot", (shot) => me() && room()?.shoot(me()!, shot));
+  sock.on("fb:input", (inp) => {
+    if (!me() || !inp || typeof inp !== "object") return;
+    const n = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(-1, Math.min(1, Number(v))) : 0);
+    room()?.fbInput(me()!, { x: n(inp.x), y: n(inp.y), a: !!inp.a, b: !!inp.b });
+  });
+  sock.on("player:pickChar", (id) => me() && room()?.pickChar(me()!, String(id)));
+  sock.on("player:pickTeam", (t) => me() && room()?.pickTeam(me()!, Number(t) === 1 ? 1 : 0));
   sock.on("host:setCourse", (id) => asHost((r) => r.setCourse(String(id)))());
   sock.on("mg:submit", (d) => me() && room()?.submit(me()!, Number(d?.score)));
   if (dev) {

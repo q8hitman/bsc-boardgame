@@ -1,5 +1,5 @@
 import { SPORTS, type SportRules } from "../shared/sports";
-import type { Shot, SportId, SportState } from "../shared/sports/types";
+import type { LaneSportId, Shot, SportState } from "../shared/sports/types";
 import type { Anim, GameState } from "../shared/types";
 
 /** What a sports game needs from the Room (same shape as the card game's host). */
@@ -33,7 +33,7 @@ export class SportGame {
     return this.s.sport!;
   }
 
-  start(id: SportId) {
+  start(id: LaneSportId) {
     this.stop();
     this.over = false;
     this.rules = SPORTS[id] as SportRules<unknown>;

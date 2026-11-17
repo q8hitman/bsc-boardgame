@@ -1,3 +1,5 @@
+import type { FbFrame, FbInput } from "../../shared/football/types";
+import type { PoolShot } from "../../shared/pool/types";
 import type { Shot, SportId } from "../../shared/sports/types";
 import type { GameState } from "../../shared/types";
 
@@ -10,6 +12,10 @@ export interface SportViewOpts {
   me: () => string;
   /** play sounds (the projector, or a phone room where this phone is the only screen) */
   sound: boolean;
+  /** server clock: the server's "now" in ms (football frames carry server times) */
+  serverNow?: () => number;
+  /** football on a phone next to a big screen: only the controller (joystick, buttons, score), no pitch */
+  controllerOnly?: boolean;
 }
 
 export interface SportView {
@@ -19,7 +25,12 @@ export interface SportView {
   anim(s: GameState): void;
   /** personal mode: let the player shoot by dragging on the view (null = not now). The view sends at most one
    *  shot per call and shows the aim while dragging. */
-  setInput(onShot: ((shot: Shot) => void) | null): void;
+  setInput(onShot: ((shot: Shot | PoolShot) => void) | null): void;
+  /** football only: a position snapshot from the server (~15 a second) */
+  fbFrame?(f: FbFrame): void;
+  /** football only: show on-screen controls (joystick + two buttons; keyboard on a computer) reporting here.
+   *  null = just watch. */
+  setControl?(onInput: ((input: FbInput) => void) | null): void;
   destroy(): void;
 }
 
@@ -29,5 +40,7 @@ export type SportViewFactory = (root: HTMLElement, opts: SportViewOpts) => Sport
 export async function loadSportView(id: SportId): Promise<SportViewFactory> {
   if (id === "bowling") return (await import("./bowling-view")).createBowlingView;
   if (id === "hoops") return (await import("./hoops-view")).createHoopsView;
+  if (id === "football") return (await import("./football-view")).createFootballView;
+  if (id === "pool") return (await import("./pool-view")).createPoolView;
   return (await import("./golf-view")).createGolfView;
 }
