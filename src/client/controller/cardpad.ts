@@ -83,8 +83,10 @@ export function createCardPad(sock: ClientSocket, main: HTMLElement, me: () => s
     const phoneHtml = () => {
       const width = main.clientWidth || innerWidth;
       const land = innerWidth > innerHeight;
-      const cw = Math.round(Math.max(62, Math.min(land ? 76 : 94, width / (land ? 7.5 : 4))));
-      const room2 = Math.min(width - (land ? 150 : 16) - cw * 0.35, 640);
+      // a computer / tablet screen (tall enough) gets bigger cards than a phone held sideways
+      const big = land && innerHeight >= 700;
+      const cw = Math.round(Math.max(62, Math.min(big ? 128 : land ? 76 : 94, width / (land ? 7.5 : 4))));
+      const room2 = Math.min(width - (land ? 150 : 16) - cw * 0.35, big ? 960 : 640);
       const st2 = n > 1 ? Math.max(cw * 0.22, Math.min(cw * 0.66, (room2 - cw) / (n - 1))) : 0;
       const rowW = (n - 1) * st2 + cw;
       const tilt = Math.min(4.5, 26 / Math.max(1, n));

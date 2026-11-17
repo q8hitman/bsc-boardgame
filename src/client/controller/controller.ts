@@ -163,8 +163,8 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     root.classList.toggle("ph", show);
     root.classList.toggle("cards", show && isCards(s));
     root.classList.toggle("sport", show && isSport(s) && s.phase !== "end");
-    // football and pool: the game takes the whole phone (their own HUD shows turns, scores and the controls)
-    root.classList.toggle("fb", show && (s.boardId === "football" || s.boardId === "pool") && s.phase !== "end" && s.phase !== "final");
+    // sports: the game takes the whole screen (each view has its own HUD: turns, scores, how to shoot, controls)
+    root.classList.toggle("fb", show && isSport(s) && s.phase !== "end" && s.phase !== "final");
     root.classList.toggle("land", innerWidth > innerHeight);
     document.body.classList.toggle("ph-on", show);
     view.classList.toggle("hidden", !show);

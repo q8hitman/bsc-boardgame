@@ -236,7 +236,20 @@ export class FootballHud {
     const status = { mine: "الكورة معاك! سدد ولا مرّر", team: "الكورة مع فريقك", them: "الكورة مع الخصم · زحلق!", loose: "الكورة سايبة · روح لها" }[ball];
     this.me.className = `fb-me t${p.team} ${ball}`;
     this.me.innerHTML = `<div class="pf"><i style="background-image:url(assets/football/${ch}-${p.team === 1 ? "red" : "blue"}.png)"></i></div>
-      <div class="nm"><b>${esc(p.name)}</b><span>${TEAM_NAME[p.team]}</span><em>${status}</em></div>`;
+      <div class="nm"><b>${esc(p.name)}</b><span>${TEAM_NAME[p.team]}</span><em>${status}</em><span class="stam"><u></u></span></div>`;
+  }
+
+  /** controller pad: the sprint stamina bar (0..1, undefined = the server doesn't send it) */
+  setStamina(v: number | undefined) {
+    const bar = this.me?.querySelector<HTMLElement>(".stam");
+    if (!bar) return;
+    bar.style.display = v === undefined ? "none" : "";
+    if (v === undefined) return;
+    const pct = `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`;
+    const u = bar.firstElementChild as HTMLElement;
+    if (u.style.width !== pct) u.style.width = pct;
+    bar.classList.toggle("low", v < 0.35 && v >= 0.08);
+    bar.classList.toggle("out", v < 0.08);
   }
 
   destroy() {

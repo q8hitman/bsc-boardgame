@@ -108,9 +108,9 @@ export function startLocal(app: HTMLElement) {
     const server = useLocalServer();
     setLocalConnect(() => server.connect() as unknown as ClientSocket);
     document.body.classList.add("lp-on");
-    // one person on a phone: the phone-room layout (board or table above, pad below) instead of a shrunken screen
-    const phone = matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 600;
-    if (cfg.humans === 1 && phone) return playPhone(server);
+    // one person (phone or computer): one screen with the game and its controls, like a phone room. Two people
+    // on one computer keep the shared screen with a panel each.
+    if (cfg.humans === 1) return playPhone(server);
     app.innerHTML = `
       <div class="lp-game h${cfg.humans}">
         <div class="lp-board" id="lpBoard"></div>

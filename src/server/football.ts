@@ -164,7 +164,7 @@ export class FootballGame implements GameRunner {
   shoot(_pid: string, _shot: PoolShot) {}
   input(pid: string, input: FbInput) {
     if (this.over || !this.eng) return;
-    this.lastInput.set(pid, { at: Date.now(), held: input.a || input.b || input.x !== 0 || input.y !== 0 });
+    this.lastInput.set(pid, { at: Date.now(), held: input.a || input.b || !!input.s || !!input.k || input.x !== 0 || input.y !== 0 });
     this.eng.input(pid, input);
   }
 
@@ -251,7 +251,7 @@ export class FootballGame implements GameRunner {
         const li = this.lastInput.get(p.pid);
         if (li?.held && now - li.at > STALE_INPUT_MS) {
           li.held = false;
-          eng.input(p.pid, { x: 0, y: 0, a: false, b: false });
+          eng.input(p.pid, { x: 0, y: 0, a: false, b: false, s: false, k: false });
         }
       }
       for (let i = 0; i < this.speed; i++) {

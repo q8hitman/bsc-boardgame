@@ -33,4 +33,8 @@ export const REFEREE = { id: "zahraa", name: "د. زهراء" };
 export const FRAME_W = 64;
 export const FRAME_H = 72;
 export const FRAMES = ["idle", "run1", "run2", "run3", "run4", "kick"] as const;
+/** Extra poses per duck in a second strip, /assets/football/extra/<id>-blue.png and -red.png (same 64x72 frames,
+ *  same baseline; the main strips stay 6 frames so the lobby picker keeps working). Made by tools/pixel/poses.py
+ *  from each main strip (legs cut and moved, the body leaned) plus a generated arms-up celebrate pose. */
+export const EXTRA_FRAMES = ["sprint1", "sprint2", "sprint3", "sprint4", "slide", "trap", "skill", "celebrate"] as const;
 export const isClubChar = (id: string) => CLUB.some((c) => c.id === id);

@@ -19,13 +19,39 @@ const POST_R = 0.1;
 
 /** Gameplay tuning (metres, seconds). Exported so the tests and the report can quote them. */
 export const TUNE = {
-  runSpeed: 7.0,
-  dribbleSpeed: 6.1,
+  /** normal movement is a jog; the sprint button (or a computer duck in a hurry) goes flat out on stamina */
+  jogSpeed: 5.4,
+  jogBall: 4.8,
+  sprintSpeed: 8.2,
+  sprintBall: 7.2,
   keeperSpeed: 6.3,
-  accel: 30,
+  /** snappy at a jog, heavy (wide turns) at a sprint (m/s²) */
+  accel: 34,
+  accelSprint: 13,
+  /** stamina 0..1: a full bar is ~5 s of sprint, it refills in ~6 s; after running dry it must get back to `tiredUntil` */
+  staminaDrain: 0.2,
+  staminaRecover: 1 / 6,
+  tiredUntil: 0.15,
+  /** k with the ball: skill move (sideways burst, tackles miss), k without: a dash */
+  trickTime: 0.35,
+  trickSpeed: 7.0,
+  trickCooldown: 1.2,
+  /** a tackler beaten by a skill move stumbles this long */
+  stumble: 0.45,
+  dashTime: 0.25,
+  dashSpeed: 9.5,
+  dashCost: 0.12,
+  dashCooldown: 1.0,
+  /** first touch: cushioning a pass / loose ball (slow for this long); a hard ball can bounce off */
+  trapTime: 0.2,
+  /** ball ahead of the feet: tight at a jog, knocked on (between the two) at a sprint */
+  sprintTouchMin: 0.75,
+  sprintTouchMax: 1.15,
+  /** pokes are this much likelier against a sprinting dribbler (the ball is out in front) */
+  sprintPokeFactor: 1.5,
   duckR: 0.42,
   /** ball at the owner's feet, this far in front */
-  dribbleDist: 0.55,
+  dribbleDist: 0.5,
   pickupR: 0.72,
   keeperReach: 0.95,
   diveReach: 1.25,
@@ -106,6 +132,23 @@ export interface Duck {
   fall: number;
   /** beaten keeper on his knees (seconds left) */
   kneel: number;
+  /** stamina 0..1, ran dry (no sprint until tiredUntil), sprinting this tick, the computer wants to sprint */
+  stamina: number;
+  tired: boolean;
+  sprinting: boolean;
+  wantSprint: boolean;
+  /** skill move: time left, direction, cooldown; dash: time left, direction, cooldown; first-touch trap time */
+  trick: number;
+  tkx: number;
+  tky: number;
+  trickCd: number;
+  dash: number;
+  dkx: number;
+  dky: number;
+  dashCd: number;
+  trap: number;
+  /** dribble touch rhythm while sprinting */
+  touch: number;
   lock: number;
   noPick: number;
   /** seconds since this duck got the ball */
@@ -169,6 +212,10 @@ export interface Person {
   aDown: boolean;
   bDown: boolean;
   bUp: boolean;
+  /** sprint held, skill button held / pressed since the last tick */
+  s: boolean;
+  k: boolean;
+  kDown: boolean;
   /** controlled slot right now and how long it has been */
   ctrl: number;
   ctrlT: number;
@@ -290,6 +337,7 @@ export class FbEngine {
         slot: p.slot, team: p.team, gk: p.gk, skill: clamp(opts.skill ? opts.skill(p) : 0.6, 0.05, 1), role,
         x: 0, y: 0, vx: 0, vy: 0, hx: 1, hy: 0, face: 1, tx: 0, ty: 0, run: 0, think: (p.slot % 5) * 0.03, spotT: 0, spotX: 0, spotY: 0,
         kickT: 0, slide: 0, sdx: 0, sdy: 0, slideCd: 0, fall: 0, kneel: 0, lock: 0, noPick: 0, hasT: 0, dive: 0, dvx: 0, dvy: 0,
+        stamina: 1, tired: false, sprinting: false, wantSprint: false, trick: 0, tkx: 0, tky: 0, trickCd: 0, dash: 0, dkx: 0, dky: 0, dashCd: 0, trap: 0, touch: 0,
         saveShot: -1, saveOk: false, charge: -1, celebrate: false, mope: false, wantBy: -1, wantUntil: 0,
       };
     });
@@ -318,7 +366,7 @@ export class FbEngine {
 
   // ------------------------------------------------------------------ people
   addPerson(pid: string, team: FbTeam, own: number) {
-    this.people.set(pid, { pid, team, own, active: true, x: 0, y: 0, a: false, b: false, aDown: false, bDown: false, bUp: false, ctrl: own, ctrlT: 0 });
+    this.people.set(pid, { pid, team, own, active: true, x: 0, y: 0, a: false, b: false, aDown: false, bDown: false, bUp: false, s: false, k: false, kDown: false, ctrl: own, ctrlT: 0 });
   }
   setActive(pid: string, active: boolean) {
     const p = this.people.get(pid);
@@ -326,7 +374,7 @@ export class FbEngine {
     p.active = active;
     if (!active) {
       if (this.ducks[p.ctrl]) this.ducks[p.ctrl].charge = -1;
-      p.a = p.b = p.aDown = p.bDown = p.bUp = false;
+      p.a = p.b = p.aDown = p.bDown = p.bUp = p.s = p.k = p.kDown = false;
       p.x = p.y = 0;
     }
   }
@@ -336,10 +384,19 @@ export class FbEngine {
     if (inp.a && !p.a) p.aDown = true;
     if (inp.b && !p.b) p.bDown = true;
     if (!inp.b && p.b) p.bUp = true;
+    if (inp.k && !p.k) p.kDown = true;
     p.a = inp.a;
     p.b = inp.b;
+    p.s = !!inp.s;
+    p.k = !!inp.k;
     p.x = clamp(inp.x, -1, 1);
     p.y = clamp(inp.y, -1, 1);
+  }
+  /** room player id -> stamina of the duck they control (active people only), 2 decimals */
+  stamina(): Record<string, number> {
+    const st: Record<string, number> = {};
+    for (const p of this.people.values()) if (p.active && p.ctrl >= 0) st[p.pid] = Math.round(this.ducks[p.ctrl].stamina * 100) / 100;
+    return st;
   }
   /** room player id -> the slot they control (active people only) */
   control(): Record<string, number> {
@@ -375,7 +432,7 @@ export class FbEngine {
     this.pen = null;
     this.hero = -1;
     this.resetBall(0, 0);
-    for (const d of this.ducks) Object.assign(d, { slide: 0, dive: 0, kickT: 0, charge: -1, celebrate: false, mope: false, noPick: 0, hasT: 0, saveShot: -1 });
+    for (const d of this.ducks) Object.assign(d, { slide: 0, dive: 0, kickT: 0, charge: -1, celebrate: false, mope: false, noPick: 0, hasT: 0, saveShot: -1, trick: 0, dash: 0, trap: 0 });
     this.setStage("kickoff");
   }
   private allBack() {
@@ -392,6 +449,7 @@ export class FbEngine {
     this.setStage("idle");
   }
   setHalf(h: 1 | 2) {
+    for (const d of this.ducks) Object.assign(d, { stamina: 1, tired: false });
     this.half = h;
     this.clock = 0;
     this.halfOver = false;
@@ -619,7 +677,7 @@ export class FbEngine {
   }
   /** earliest time (and place) this duck can meet the loose ball */
   reach(d: Duck): { t: number; x: number; y: number } {
-    const sp = d.gk ? TUNE.keeperSpeed : TUNE.runSpeed;
+    const sp = d.gk ? TUNE.keeperSpeed : d.stamina > 0.25 && !d.tired ? TUNE.sprintSpeed * 0.92 : TUNE.jogSpeed;
     for (let i = 0; i < this.path.length; i++) {
       const p = this.path[i];
       const t = (i + 1) * 0.1;
@@ -634,11 +692,15 @@ export class FbEngine {
     d.kickT = Math.max(0, d.kickT - dt);
     d.slideCd = Math.max(0, d.slideCd - dt);
     d.noPick = Math.max(0, d.noPick - dt);
-    if (this.ball.owner === d.slot) d.hasT += dt;
+    d.trickCd = Math.max(0, d.trickCd - dt);
+    d.dashCd = Math.max(0, d.dashCd - dt);
+    const mine = this.ball.owner === d.slot;
+    if (mine) d.hasT += dt;
     else d.hasT = 0;
     let wx = 0;
     let wy = 0;
-    let top = d.gk ? TUNE.keeperSpeed : this.ball.owner === d.slot ? TUNE.dribbleSpeed : TUNE.runSpeed;
+    let top = d.gk ? TUNE.keeperSpeed : mine ? TUNE.jogBall : TUNE.jogSpeed;
+    d.sprinting = false;
     const frozen = (this.stage === "idle" && !this.halfOver && this.winners < 0) || (this.stage === "pen" && d.slot !== this.pen?.keeper);
     if (d.kneel > 0) {
       d.kneel -= dt;
@@ -663,13 +725,21 @@ export class FbEngine {
       d.lock -= dt;
       d.vx *= 0.7;
       d.vy *= 0.7;
+    } else if (d.trick > 0) {
+      // skill move: a sharp burst to the side / round, the ball glued to the feet
+      d.trick -= dt;
+      d.vx = d.tkx * TUNE.trickSpeed;
+      d.vy = d.tky * TUNE.trickSpeed;
     } else if (frozen) {
       d.vx = d.vy = 0;
       if (this.stage === "pen") this.penDuck(d, dt);
     } else {
       const p = this.ctrlBy[d.slot];
+      let want = false;
+      let ability = 1;
       if (p && this.stage === "play") {
         [wx, wy] = this.personDrive(d, p, dt);
+        want = p.s;
       } else {
         this.computerDrive(d, dt);
         const dx = d.tx - d.x;
@@ -680,14 +750,30 @@ export class FbEngine {
           wx = (dx / dist) * k;
           wy = (dy / dist) * k;
         }
-        top *= 0.94 + 0.06 * d.skill;
+        ability = 0.95 + 0.05 * d.skill;
+        want = d.wantSprint && this.stage === "play";
+      }
+      if (want && !d.gk && !d.tired && d.stamina > 0 && hyp(wx, wy) > 0.5 && d.trap <= 0) {
+        d.sprinting = true;
+        top = mine ? TUNE.sprintBall : TUNE.sprintSpeed;
+      }
+      top *= ability;
+      if (d.trap > 0) {
+        d.trap -= dt;
+        top *= 0.45;
+      }
+      if (d.dash > 0) {
+        d.dash -= dt;
+        top = TUNE.dashSpeed;
+        wx = d.dkx;
+        wy = d.dky;
       }
       const tvx = wx * top;
       const tvy = wy * top;
       const ax = tvx - d.vx;
       const ay = tvy - d.vy;
       const am = hyp(ax, ay);
-      const maxA = TUNE.accel * dt;
+      const maxA = (d.sprinting ? TUNE.accelSprint : d.dash > 0 ? TUNE.accel * 2 : TUNE.accel) * dt;
       if (am > maxA) {
         d.vx += (ax / am) * maxA;
         d.vy += (ay / am) * maxA;
@@ -696,13 +782,25 @@ export class FbEngine {
         d.vy = tvy;
       }
     }
+    // stamina: drains while sprinting, refills otherwise; running dry stops the sprint until it is back a bit
+    if (d.sprinting) {
+      d.stamina -= TUNE.staminaDrain * dt;
+      if (d.stamina <= 0) {
+        d.stamina = 0;
+        d.tired = true;
+      }
+    } else {
+      d.stamina = Math.min(1, d.stamina + TUNE.staminaRecover * dt);
+      if (d.tired && d.stamina >= TUNE.tiredUntil) d.tired = false;
+    }
+    if (mine && d.sprinting) d.touch += dt;
     d.x += d.vx * dt;
     d.y += d.vy * dt;
     const lim = d.gk ? HALF_L - 0.25 : HALF_L - 0.4;
     d.x = clamp(d.x, -lim, lim);
     d.y = clamp(d.y, -HALF_W + 0.4, HALF_W - 0.4);
     const sp = hyp(d.vx, d.vy);
-    if (sp > 0.5 && d.slide <= 0 && d.fall <= 0 && d.dive <= 0) {
+    if (sp > 0.5 && d.slide <= 0 && d.fall <= 0 && d.dive <= 0 && d.kneel <= 0) {
       d.hx = d.vx / sp;
       d.hy = d.vy / sp;
     }
@@ -830,6 +928,13 @@ export class FbEngine {
         o.wantUntil = this.time + 1.5;
         o.think = 0;
       } else if (d.slideCd <= 0) this.slideStart(d, d.hx, d.hy);
+    }
+    if (p.kDown) {
+      p.kDown = false;
+      const kx = m >= 0.3 ? jx : 0;
+      const ky = m >= 0.3 ? jy : 0;
+      if (mine) this.trickStart(d, kx, ky);
+      else this.dashStart(d, kx || d.hx, ky || d.hy);
     }
     if (p.bDown) {
       p.bDown = false;
@@ -1011,7 +1116,7 @@ export class FbEngine {
       const realSide = gy > 0.9 ? 1 : gy < -0.9 ? -1 : 0;
       const guess = this.rng() < 0.15 + 0.15 * k.skill ? realSide : [-1, 0, 1][Math.floor(this.rng() * 3)];
       k.saveShot = b.kick;
-      k.saveOk = this.rng() < 0.42;
+      k.saveOk = this.rng() < 0.38;
       if (guess !== 0) {
         k.dive = 0.5;
         k.dvx = 0;
@@ -1070,6 +1175,41 @@ export class FbEngine {
     }
     b.head = true;
   }
+  /** skill move with the ball: a quick feint / step-over / roulette towards (dx, dy) (no direction: sideways, left
+   *  and right in turn). Tackles in this window miss. */
+  trickStart(d: Duck, dx: number, dy: number) {
+    if (this.ball.owner !== d.slot || d.trick > 0 || d.trickCd > 0 || d.gk) return;
+    let m = hyp(dx, dy);
+    if (m < 0.2) {
+      const side = d.slot % 2 === Math.round(this.time) % 2 ? 1 : -1;
+      dx = -d.hy * side + d.hx * 0.3;
+      dy = d.hx * side + d.hy * 0.3;
+      m = hyp(dx, dy);
+    }
+    d.tkx = dx / m;
+    d.tky = dy / m;
+    d.trick = TUNE.trickTime;
+    d.trickCd = TUNE.trickCooldown + TUNE.trickTime;
+    d.charge = -1;
+  }
+  /** without the ball: a short burst of speed (costs a little stamina) */
+  dashStart(d: Duck, dx: number, dy: number) {
+    if (d.dash > 0 || d.dashCd > 0 || d.gk || d.stamina < TUNE.dashCost || d.slide > 0 || d.fall > 0) return;
+    const m = hyp(dx, dy) || 1;
+    d.dkx = dx / m;
+    d.dky = dy / m;
+    d.dash = TUNE.dashTime;
+    d.dashCd = TUNE.dashCooldown;
+    d.stamina -= TUNE.dashCost;
+  }
+  /** a tackler is beaten by a skill move: he stumbles */
+  private beaten(d: Duck) {
+    d.slide = 0;
+    d.lock = TUNE.stumble;
+    d.noPick = TUNE.stumble;
+    d.vx *= 0.3;
+    d.vy *= 0.3;
+  }
   slideStart(d: Duck, dx: number, dy: number) {
     if (d.slide > 0 || d.fall > 0 || d.slideCd > 0 || d.gk) return;
     const m = hyp(dx, dy) || 1;
@@ -1098,7 +1238,10 @@ export class FbEngine {
   private glue() {
     const b = this.ball;
     const o = this.ducks[b.owner];
-    const dd = b.held ? 0.3 : TUNE.dribbleDist;
+    // tight at a jog (and in a skill move); knocked on ahead at a sprint, touch after touch
+    const dd = b.held ? 0.3 : o.trick > 0 ? 0.35 : o.sprinting
+      ? TUNE.sprintTouchMin + (TUNE.sprintTouchMax - TUNE.sprintTouchMin) * (0.5 - 0.5 * Math.cos(o.touch * Math.PI * 4))
+      : TUNE.dribbleDist;
     b.x = clamp(o.x + o.hx * dd, -HALF_L + BALL_R + 0.05, HALF_L - BALL_R - 0.05);
     b.y = clamp(o.y + o.hy * dd, -HALF_W + BALL_R, HALF_W - BALL_R);
     b.z = b.held ? 0.7 : 0;
@@ -1366,6 +1509,10 @@ export class FbEngine {
       if (b.owner >= 0 && this.ducks[b.owner].team !== d.team && !b.held) {
         const o = this.ducks[b.owner];
         if (hyp(o.x - d.x, o.y - d.y) < TUNE.slideReach || hyp(b.x - d.x, b.y - d.y) < TUNE.slideReach * 0.9) {
+          if (o.trick > 0) {
+            this.beaten(d);
+            continue;
+          }
           this.release(o, b.x, b.y);
           o.noPick = TUNE.fallTime;
           o.fall = TUNE.fallTime;
@@ -1402,7 +1549,13 @@ export class FbEngine {
         const rate = this.isHuman(d) ? 2.6 : TUNE.pokeRate * (0.5 + d.skill);
         // dribbling straight into a duck's feet (the ball runs into his body) is much riskier than him reaching in
         const block = bd < TUNE.duckR + BALL_R ? TUNE.blockFactor : 1;
-        if (this.rng() < rate * block * dt) {
+        const exposed = o.sprinting ? TUNE.sprintPokeFactor : 1;
+        if (this.rng() < rate * block * exposed * dt) {
+          if (o.trick > 0) {
+            // he goes for it and the skill move takes the ball away from him
+            this.beaten(d);
+            continue;
+          }
           this.release(o, b.x, b.y);
           o.noPick = 0.45;
           // knocked off his foot, sideways and back towards the tackler's side
@@ -1471,7 +1624,24 @@ export class FbEngine {
         return;
       }
     }
+    const inVx = b.vx;
+    const inVy = b.vy;
+    const atX = b.x;
+    const atY = b.y;
     this.take(best);
+    if (!best.gk && rel > 3) {
+      // first touch: cushion it; a hard ball can bounce off the foot (a third of its pace, a little sideways)
+      best.trap = TUNE.trapTime;
+      const bounce = clamp((rel - 12) / 12, 0, 0.6) * (1.2 - best.skill);
+      if (this.rng() < bounce) {
+        this.release(best, atX, atY);
+        best.kickT = 0;
+        best.noPick = 0.25;
+        b.vx = inVx * 0.3 + (this.rng() - 0.5) * 2;
+        b.vy = inVy * 0.3 + (this.rng() - 0.5) * 2;
+        b.vz = this.rng() * 1.5;
+      }
+    }
   }
 
   private collide() {
@@ -1564,8 +1734,12 @@ export class FbEngine {
     if (d.slide > 0) return FbAction.Slide;
     if (d.celebrate) return FbAction.Celebrate;
     if (d.mope) return FbAction.Idle;
+    if (d.trick > 0) return FbAction.Skill;
+    if (d.trap > 0) return FbAction.Trap;
     if (d.kickT > 0) return FbAction.Kick;
-    if (hyp(d.vx, d.vy) > 0.6) return FbAction.Run;
+    const sp = hyp(d.vx, d.vy);
+    if ((d.sprinting || d.dash > 0) && sp > 6) return FbAction.Sprint;
+    if (sp > 0.6) return FbAction.Run;
     return FbAction.Idle;
   }
   /** the snapshot for the screens (numbers rounded to 2 decimals); drains the events */
@@ -1576,6 +1750,10 @@ export class FbEngine {
     for (const d of this.ducks) p.push(r2(d.x), r2(d.y), d.face, this.action(d));
     const f: FbFrame = { t, b: [r2(b.x), r2(b.y), r2(b.z), b.owner], p, r: [r2(this.ref.x), r2(this.ref.y)], c: this.control() };
     if (this.events.length) f.ev = this.events.splice(0);
+    if (this.people.size) {
+      const st = this.stamina();
+      if (Object.keys(st).length) f.st = st;
+    }
     return f;
   }
 }

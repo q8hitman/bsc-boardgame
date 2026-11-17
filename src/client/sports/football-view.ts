@@ -31,6 +31,7 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
   let st: FbState | undefined;
   let phase = "";
   let lastGoalAt = 0;
+  let goals = 0;
   let lastStage = "";
   let dead = false;
   let paused = false;
@@ -95,6 +96,7 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
       mode: opts.mode,
       input: () => controls.input(),
       charge: () => controls.chargeLevel(),
+      stamina: () => stamina(),
       newest: (slot) => frames.newest(slot),
       serverNow,
       ready: () => {
@@ -122,7 +124,7 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
       scene,
     });
     game.registry.set("dpr", dpr);
-    if (location.pathname.endsWith("/football/dev.html")) (window as unknown as { __fbGame: Phaser.Game }).__fbGame = game;
+    if (location.pathname.endsWith("/football/dev.html") || location.search.includes("fbdebug")) (window as unknown as { __fbGame: Phaser.Game }).__fbGame = game;
   };
   const onResize = () => {
     if (!game) return;
@@ -168,8 +170,11 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
       const me = slot >= 0 ? st.roster[slot] : st.roster.find((q) => q.pid === myId());
       const ownerTeam = own >= 0 ? st.roster[own]?.team : undefined;
       const mine = ownerTeam === undefined || !me ? null : ownerTeam === me.team;
-      controls.possession(mine);
-      if (pad) hud.setMe(me ?? null, own >= 0 && own === slot ? "mine" : mine === true ? "team" : mine === false ? "them" : "loose");
+      controls.possession(mine, own >= 0 && own === slot);
+      if (pad) {
+        hud.setMe(me ?? null, own >= 0 && own === slot ? "mine" : mine === true ? "team" : mine === false ? "them" : "loose");
+        hud.setStamina(stamina());
+      }
     } else if (pad) hud.setMe(null, "loose");
   };
   raf = requestAnimationFrame(loop);
@@ -227,7 +232,16 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
   }
 
   /** the goal reaches the screen: banner, roar, net, crowd; a screamer gets a slow-motion moment first */
+  /** my sprint stamina 0..1 from the newest frame (undefined = the server doesn't send it) */
+  function stamina(): number | undefined {
+    const id = myId();
+    const v = id ? frames.latest?.st?.[id] : undefined;
+    return typeof v === "number" ? v : undefined;
+  }
+
   function showGoal(s: FbState) {
+    goals++;
+    if (goals >= 2) controls.goalScored();
     const g = s.lastGoal;
     if (!g) return;
     const speed = g.speed ?? frames.ballSpeedAfter(g.at - 150);

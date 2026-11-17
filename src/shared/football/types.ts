@@ -91,6 +91,8 @@ export interface FbFrame {
   c: Record<string, number>;
   /** what happened since the last frame, for sounds and little effects: [FbEvent, slot] pairs (slot -1 = none) */
   ev?: [number, number][];
+  /** room player id -> stamina 0..1 of the duck they control (for the sprint bar); people only */
+  st?: Record<string, number>;
 }
 
 /** FbFrame.ev kinds */
@@ -124,6 +126,12 @@ export const FbAction = {
   Fall: 6,
   /** a beaten keeper on his knees, head down, after conceding / losing */
   Kneel: 7,
+  /** flat-out sprint (the sprint button): leaning forward, longer strides */
+  Sprint: 8,
+  /** first touch: controlling a pass / loose ball (a short trap) */
+  Trap: 9,
+  /** a dribbling skill move (feint / step-over / roulette) that beats a tackle */
+  Skill: 10,
 } as const;
 
 /** One phone's controls, sent over "fb:input" whenever they change (and at least every 250 ms while held).
@@ -137,4 +145,8 @@ export interface FbInput {
   y: number;
   a: boolean;
   b: boolean;
+  /** sprint, held (uses stamina) */
+  s?: boolean;
+  /** skill move, pressed: with the ball = a feint / step-over in the joystick direction; without = a quick dash */
+  k?: boolean;
 }

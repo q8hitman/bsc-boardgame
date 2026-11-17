@@ -209,3 +209,51 @@
 .fb-banner.slow .tag { background: #2a2f4d; transform: none; }
 @keyframes fbShake { 0% { transform: translate(-3px, 2px) rotate(-2deg); } 100% { transform: translate(3px, -2px) rotate(2deg); } }
 @keyframes fbTag { 0% { transform: scale(0) rotate(-3deg); } 100% { transform: scale(1) rotate(-3deg); } }
+
+/* ---------- sprint + skill buttons (touch), the key legend (computer), the stamina bar */
+.fb-ctrl .btns { height: calc(var(--bs) * 2.05); width: calc(var(--bs) * 2.3); }
+.fbb.s { right: calc(var(--bs) * .1); bottom: calc(var(--bs) * -.12); width: calc(var(--bs) * .74); height: calc(var(--bs) * .74); background: #7b5cff; }
+.fbb.s .k { font-size: calc(var(--bs) * .4); margin-top: -.15em; direction: ltr; unicode-bidi: isolate; }
+.fbb.s b { font-size: calc(var(--bs) * .17); bottom: calc(var(--bs) * -.17); }
+.fbb.k { left: calc(var(--bs) * .02); top: calc(var(--bs) * .05); width: calc(var(--bs) * .62); height: calc(var(--bs) * .62); background: #ffcf2a; color: #3a2400;
+  opacity: 0; transform: scale(.4); pointer-events: none; transition: opacity .15s, transform .15s steps(3); }
+.fbb.k .k { font-size: calc(var(--bs) * .32); text-shadow: none; margin-top: 0; }
+.fbb.k b { font-size: calc(var(--bs) * .15); bottom: calc(var(--bs) * -.16); color: #fff; }
+.fb-ctrl.withball .fbb.k { opacity: 1; transform: none; pointer-events: auto; }
+.fb-ctrl.withball .fbb.k.on { transform: translateY(3px) scale(.94); }
+
+/* a computer: no thumbs, so no on-screen stick or buttons; a key legend instead */
+.fb-ctrl.desk .joyzone, .fb-ctrl.desk .joy, .fb-ctrl.desk .btns { display: none; }
+.fb-ctrl.touch .fb-keys { display: none; }
+.fb-keys {
+  position: absolute; left: 12px; bottom: 12px; padding: 8px 12px 10px; min-width: 230px; background: rgba(12, 14, 32, .86); color: #fff;
+  box-shadow: inset 0 0 0 var(--px) #ffd23f, inset 0 0 0 calc(var(--px) * 2) var(--ink), 0 var(--px) 0 rgba(0, 0, 0, .4);
+  font-size: 14px; font-weight: 700; line-height: 1.25; text-shadow: 1px 1px 0 var(--ink); pointer-events: none;
+  clip-path: polygon(var(--px) 0, calc(100% - var(--px)) 0, 100% var(--px), 100% calc(100% - var(--px)), calc(100% - var(--px)) 100%, var(--px) 100%, 0 calc(100% - var(--px)), 0 var(--px));
+  transition: opacity .6s, transform .6s steps(4); transform-origin: bottom left;
+}
+.fb-keys.gone { opacity: 0; transform: scale(.85); }
+.fb-keys .kt { color: #ffe14a; font-weight: 800; font-size: 15px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
+.fb-keys .kr { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 2px 0; }
+.fb-keys .kr span { direction: ltr; white-space: nowrap; opacity: .9; }
+.fb-keys .kr b { font-weight: 800; }
+.fb-keys i {
+  display: inline-grid; place-items: center; min-width: 1.55em; height: 1.55em; padding: 0 .3em; margin: 0 1px; font-style: normal; font-weight: 800; font-size: 12px;
+  color: #1b1d33; background: #eef1fa; box-shadow: inset 0 -3px 0 #a9b0c8, 0 0 0 2px var(--ink); font-family: system-ui, sans-serif; text-shadow: none;
+}
+.fb-keys i.w { min-width: 3.6em; }
+.fb-keys::after { /* a peek tab once the legend has gone: "H" */
+  content: ""; }
+.fb-ctrl.desk::after {
+  content: "H = المفاتيح"; position: absolute; left: 12px; bottom: 12px; font-size: 12px; font-weight: 800; color: rgba(255, 255, 255, .7);
+  background: rgba(12, 14, 32, .6); padding: 2px 8px 3px; pointer-events: none; opacity: 0; transition: opacity .6s .5s;
+}
+.fb-ctrl.desk:has(.fb-keys.gone)::after { opacity: 1; }
+/* a computer: the mini-map moves right so the legend has the corner */
+.fb-root:has(.fb-ctrl.desk:not(.hidden)) .fb-mini { left: auto; right: 12px; transform: none; }
+
+/* the pad (controllerOnly): stamina bar under your duck's card */
+.fb-me .stam { display: block; width: 100%; height: 8px; margin-top: 5px; background: #2a2f4d; box-shadow: 0 0 0 2px var(--ink); position: relative; }
+.fb-me .stam u { position: absolute; inset: 0 auto 0 0; background: #3ddc5a; }
+.fb-me .stam.low u { background: #ff7a2a; }
+.fb-me .stam.out u { background: #e8452c; animation: fbBlink .3s steps(2) infinite; }

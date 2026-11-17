@@ -71,6 +71,9 @@ interface LaneRT {
   ballWasShown: boolean;
 }
 
+/** the dotted line that predicted the ball's path while aiming: off, so players have to judge the hook */
+const SHOW_AIM_GUIDE = false;
+
 class BowlingView implements SportView {
   private wrap: HTMLDivElement;
   private alley: Alley;
@@ -786,9 +789,9 @@ class BowlingView implements SportView {
       A.ring.scale.setScalar(pulse);
       (A.ring.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(t / 260) * 0.3;
     } else A.ring.visible = false;
-    // guide while drawing the stroke
+    // no predicted path while drawing the stroke: reading the hook yourself is the game (the owner's call)
     const d = this.drag;
-    if (able && d && d.stroke) {
+    if (SHOW_AIM_GUIDE && able && d && d.stroke) {
       const shot = this.readStroke(d.pts, true);
       if (shot) {
         const g = A.guide;

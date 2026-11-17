@@ -50,16 +50,24 @@ function nearestOpp(e: FbEngine, team: FbTeam, x: number, y: number, skipGk = fa
   return best;
 }
 
+/** sprint when it matters and there is stamina left for it (they keep some in reserve) */
+const sprintIf = (d: Duck, cond: boolean, reserve = 0.3) => {
+  d.wantSprint = cond && d.stamina > reserve && !d.tired;
+};
+
 export function aiThink(e: FbEngine, d: Duck) {
   const b = e.ball;
   const c = e.ctx[d.team];
   d.run = 1;
+  d.wantSprint = false;
   if (b.owner === d.slot) return carrier(e, d);
   if (b.owner < 0) {
     if (c.chaser === d.slot) {
       const r = e.reach(d);
       d.tx = r.x;
       d.ty = r.y;
+      // a race for a loose ball / a through ball: flat out
+      sprintIf(d, hyp(r.x - d.x, r.y - d.y) > 3, 0.15);
       return;
     }
     return b.lastTeam === d.team ? support(e, d) : defend(e, d);
@@ -86,6 +94,15 @@ function carrier(e: FbEngine, d: Duck) {
     }
   }
   if (d.hasT < 0.2) return dribble(e, d, distGoal);
+  // pressed from the front: now and then a skill move round him
+  if (pressure < 1.8 && d.trickCd <= 0 && e.rng() < 0.02 + 0.06 * d.skill) {
+    let o: Duck | null = null;
+    for (const x of e.ducks) if (x.team !== d.team && !x.gk && (!o || hyp(x.x - d.x, x.y - d.y) < hyp(o.x - d.x, o.y - d.y))) o = x;
+    if (o && (o.x - d.x) * s > -0.3) {
+      const away = o.y > d.y ? -1 : 1;
+      return e.trickStart(d, s * 0.45, away);
+    }
+  }
   // wide near the goal line: cross it to a team-mate in the box (headers)
   if (Math.abs(d.y) > 8 && L - d.x * s < 12 && e.rng() < 0.45) {
     const target = e.ducks
@@ -175,6 +192,10 @@ function dribble(e: FbEngine, d: Duck, distGoal: number) {
     if (Math.abs(dy) < 0.6 && dx * s > 0) vy += (Math.abs(d.y) > 2 ? -Math.sign(d.y) : d.slot % 2 ? 1 : -1) * k * 1.6;
   }
   if (Math.abs(d.y) > W - 3) vy -= Math.sign(d.y) * 0.8;
+  // nobody in front and a long way to go: a breakaway, at a sprint
+  let ahead = false;
+  for (const o of e.ducks) if (o.team !== d.team && !o.gk && (o.x - d.x) * s > -0.5 && (o.x - d.x) * s < 6 && Math.abs(o.y - d.y) < 4) ahead = true;
+  sprintIf(d, !ahead && distGoal > 9, 0.35);
   // don't run into the end board: cut inside near the goal line
   if ((d.x * s) > L - 4 && Math.abs(d.y) > GW) vy -= Math.sign(d.y) * 1.2;
   // never dribble backwards
@@ -213,7 +234,10 @@ function support(e: FbEngine, d: Duck) {
   }
   d.tx = d.spotX;
   d.ty = d.spotY;
-  d.run = hyp(d.tx - d.x, d.ty - d.y) > 4 ? 1 : 0.75;
+  const far = hyp(d.tx - d.x, d.ty - d.y);
+  d.run = far > 4 ? 1 : 0.75;
+  // a run in behind
+  sprintIf(d, far > 8 && (d.tx - d.x) * e.dir(d.team) > 4, 0.6);
 }
 
 /** the presser: goal-side of the carrier, and now and then a slide tackle */
@@ -227,6 +251,7 @@ function press(e: FbEngine, d: Duck, o: Duck) {
   d.ty = o.y + o.vy * 0.25 + (gy / gm) * 0.7;
   d.run = 1;
   const dist = hyp(o.x - d.x, o.y - d.y);
+  sprintIf(d, dist > 4 || o.sprinting, 0.25);
   if (dist < 2.0 && dist > 0.6 && d.slideCd <= 0) {
     const inBox = Math.abs(d.x - goalX) < PITCH.boxDepth;
     const pSlide = (0.015 + 0.035 * d.skill) * (inBox ? 0.4 : 1);
@@ -245,6 +270,7 @@ function cover(e: FbEngine, d: Duck, o: Duck) {
   d.tx = o.x + o.vx * 0.2 + (gx / gm) * r;
   d.ty = o.y + o.vy * 0.2 + (gy / gm) * r;
   d.run = 1;
+  sprintIf(d, hyp(d.tx - d.x, d.ty - d.y) > 5);
 }
 
 /** defending shape, marking the nearest attacker goal-side */
@@ -276,10 +302,13 @@ function defend(e: FbEngine, d: Duck) {
     d.ty = h.y;
   }
   d.run = hyp(d.tx - d.x, d.ty - d.y) > 3 ? 1 : 0.8;
+  // recovering: the ball is behind him (nearer our goal) and he is far from where he should be
+  sprintIf(d, (d.x - b.x) * s > 4 && hyp(d.tx - d.x, d.ty - d.y) > 6);
 }
 
 /** keeper: on the arc between ball and goal, comes for loose balls in the box, gives it to a free team-mate */
 export function keeperThink(e: FbEngine, k: Duck) {
+  k.wantSprint = false;
   const b = e.ball;
   const s = e.dir(k.team);
   let goalX = -s * L;

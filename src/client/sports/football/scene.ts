@@ -38,6 +38,8 @@ export interface SceneOpts {
   input: () => FbInput | null;
   /** shot charge 0..1 while B is held with the ball, -1 otherwise */
   charge: () => number;
+  /** my sprint stamina 0..1 (undefined = not sent) */
+  stamina: () => number | undefined;
   /** a slot at the newest snapshot (for correcting the prediction) */
   newest: (slot: number) => { x: number; y: number; vx: number; vy: number; act: number; t: number } | null;
   serverNow: () => number;
@@ -64,6 +66,9 @@ interface Duck {
   actAt: number;
   dustAt: number;
   sparkAt: number;
+  /** the extra pose strip's texture key ("" = not loaded) */
+  xkey: string;
+  skidAt: number;
 }
 
 interface Fan {
@@ -101,9 +106,18 @@ const D_NEAR = 50000;
 const D_TOP = 100000;
 
 /** must match the engine (src/shared/football/engine.ts): metres per second, metres per second squared */
-const RUN_SPEED = 7.0;
-const DRIBBLE_SPEED = 6.1;
-const ACCEL = 30;
+const JOG_SPEED = 5.4;
+const JOG_BALL = 4.8;
+const SPRINT_SPEED = 8.2;
+const SPRINT_BALL = 7.2;
+const ACCEL = 34;
+const ACCEL_SPRINT = 13;
+/** the extra pose strip (assets/football/extra/<char>-<team>.png, see club.ts): sprint1..4, slide, trap, skill, celebrate */
+const X_SPRINT = 0;
+const X_SLIDE = 4;
+const X_TRAP = 5;
+const X_SKILL = 6;
+const X_CELEB = 7;
 
 const duckKey = (char: string, team: FbTeam) => `d-${isClubChar(char) ? char : "abdullah"}-${team}`;
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -127,6 +141,10 @@ export class FootballScene extends Phaser.Scene {
   private ballRoll = 0;
   private ballVel: [number, number, number] = [0, 0, 0];
   private speedG!: Phaser.GameObjects.Graphics;
+  /** slide marks on the grass: [time, x, y, w] in world px */
+  private skids: [number, number, number, number][] = [];
+  private skidG!: Phaser.GameObjects.Graphics;
+  private fxG!: Phaser.GameObjects.Graphics;
   private nets: Net[] = [];
   private standSlices: { img: Phaser.GameObjects.Image; k: number; y0: number; side: number }[] = [];
   private fans: Fan[] = [];
@@ -151,6 +169,8 @@ export class FootballScene extends Phaser.Scene {
   private focus: { x: number; y: number; until: number; mul: number } | null = null;
   private punchUntil = 0;
   private lastCtl = "";
+  /** the extra strips carry a real arms-up celebrate pose (else that frame is a jump) */
+  hasCeleb = true;
   private zoomChanged = false;
   /** the match: stage and who scored / won, for celebrating and drooping */
   private stage: FbStage = "kickoff";
@@ -158,7 +178,8 @@ export class FootballScene extends Phaser.Scene {
   private scorer = -1;
   private result: FbTeam | -1 | undefined;
   /** the controlled duck, predicted here from the stick */
-  private pred = { slot: -1, x: 0, y: 0, vx: 0, vy: 0, face: 1, phase: 0 };
+  private tired = false;
+  private pred = { slot: -1, x: 0, y: 0, vx: 0, vy: 0, face: 1, phase: 0, sprint: false };
 
   constructor(o: SceneOpts) {
     super({ key: "football" });
@@ -281,6 +302,8 @@ export class FootballScene extends Phaser.Scene {
     // ---- ball, referee
     this.ballShadow = this.add.image(0, 0, "fb-bshadow").setDepth(D_DECAL + 2);
     this.speedG = this.add.graphics();
+    this.skidG = this.add.graphics().setDepth(D_DECAL - 5);
+    this.fxG = this.add.graphics().setDepth(D_TOP - 3);
     for (let i = 0; i < 7; i++) this.ballTrail.push(this.add.image(0, 0, "fb-ball", 12).setAlpha(0).setDepth(0));
     this.ball = this.add.sprite(0, 0, "fb-ball", 0).setOrigin(0.5, 0.5);
     this.refShadow = this.add.image(0, 0, "fb-shadow").setDepth(D_DECAL);
@@ -399,6 +422,7 @@ export class FootballScene extends Phaser.Scene {
       for (const k of missing) {
         const [, char, team] = k.split("-");
         this.load.spritesheet(k, `assets/football/${char}-${team === "1" ? "red" : "blue"}.png`, { frameWidth: 64, frameHeight: 72 });
+        this.load.spritesheet(`x${k}`, `assets/football/extra/${char}-${team === "1" ? "red" : "blue"}.png`, { frameWidth: 64, frameHeight: 72 });
       }
       this.pendingRoster = roster;
       if (!this.loading) {
@@ -451,6 +475,8 @@ export class FootballScene extends Phaser.Scene {
         actAt: 0,
         dustAt: 0,
         sparkAt: 0,
+        xkey: this.textures.exists(`x${key}`) ? `x${key}` : "",
+        skidAt: 0,
       };
     });
     this.lastCtl = "";
@@ -772,7 +798,7 @@ export class FootballScene extends Phaser.Scene {
     const p = this.pred;
     const inp = this.o.input();
     const nw = slot >= 0 ? this.o.newest(slot) : null;
-    const free = nw && (nw.act === FbAction.Idle || nw.act === FbAction.Run || nw.act === FbAction.Kick);
+    const free = nw && (nw.act === FbAction.Idle || nw.act === FbAction.Run || nw.act === FbAction.Sprint || nw.act === FbAction.Kick || nw.act === FbAction.Trap);
     if (!inp || !nw || !free || this.stage !== "play") {
       p.slot = -1;
       return null;
@@ -789,11 +815,17 @@ export class FootballScene extends Phaser.Scene {
       ix /= il;
       iy /= il;
     }
-    const max = owner === slot ? DRIBBLE_SPEED : RUN_SPEED;
+    const st = this.o.stamina();
+    // the engine's rule: run dry and the sprint stops until the bar is back to 0.15
+    if (st !== undefined && st < 0.02) this.tired = true;
+    else if (st === undefined || st >= 0.15) this.tired = false;
+    const sprint = !!inp.s && il > 0.1 && !this.tired;
+    p.sprint = sprint;
+    const max = owner === slot ? (sprint ? SPRINT_BALL : JOG_BALL) : sprint ? SPRINT_SPEED : JOG_SPEED;
     let dvx = ix * max - p.vx;
     let dvy = iy * max - p.vy;
     const dl = Math.hypot(dvx, dvy);
-    const lim = ACCEL * dt;
+    const lim = (sprint ? ACCEL_SPRINT : ACCEL) * dt;
     if (dl > lim) {
       dvx *= lim / dl;
       dvy *= lim / dl;
@@ -842,6 +874,8 @@ export class FootballScene extends Phaser.Scene {
     const ctlKey = JSON.stringify(ctl) + me;
     const controlled = new Map<number, string>();
     for (const [pid, s] of Object.entries(ctl)) controlled.set(s, pid);
+    this.fxG.clear();
+    this.drawSkids(time);
     const pr = this.predict(mySlot, pose.owner, dt);
     const charge = mySlot >= 0 && pose.owner === mySlot ? this.o.charge() : -1;
     const over = this.stage === "over" && this.result !== undefined;
@@ -858,7 +892,10 @@ export class FootballScene extends Phaser.Scene {
         x = pr.x;
         y = pr.y;
         face = pr.face;
-        if (act === FbAction.Idle || act === FbAction.Run) act = Math.hypot(pr.vx, pr.vy) > 0.6 ? FbAction.Run : FbAction.Idle;
+        if (act === FbAction.Idle || act === FbAction.Run || act === FbAction.Sprint) {
+          const v = Math.hypot(pr.vx, pr.vy);
+          act = v > 0.6 ? (pr.sprint && v > 6 ? FbAction.Sprint : FbAction.Run) : FbAction.Idle;
+        }
       }
       const dist = Math.hypot(x - d.lx, y - d.ly);
       const sp = dist / Math.max(dt, 0.001);
@@ -872,7 +909,8 @@ export class FootballScene extends Phaser.Scene {
       }
       // the side that just conceded (or lost) trudges, head down
       const sad = (this.goalTeam !== -1 && d.team !== this.goalTeam) || (over && this.result !== -1 && d.team !== this.result);
-      d.phase += dist / (sad ? 0.5 : 0.36);
+      // cadence follows the ground covered: a frame every 0.36 m jogging, longer strides flat out
+      d.phase += dist / (sad ? 0.5 : act === FbAction.Sprint ? 0.55 : 0.36);
       let X = Math.round(wx(x));
       const Y = Math.round(wy(y));
       let frame = 0;
@@ -882,21 +920,56 @@ export class FootballScene extends Phaser.Scene {
       let sx = 1;
       let sy = 1;
       let kneel = false;
+      /** a pose from the extra strip (-1 = the main strip's `frame`) */
+      let xf = -1;
       const since = (time - d.actAt) / 1000;
       switch (act) {
         case FbAction.Kick:
           frame = 5;
           oy = since < 0.12 ? -2 : 0;
           break;
-        case FbAction.Slide:
+        case FbAction.Slide: {
           frame = 5;
-          rot = (face > 0 ? -1 : 1) * 0.42;
-          oy = 6;
-          if (time - d.dustAt > 50) {
+          xf = X_SLIDE;
+          const t = Math.min(1, since / 0.12);
+          rot = -face * (0.38 * t);
+          oy = Math.round(7 * t);
+          if (time - d.dustAt > 40) {
             d.dustAt = time;
-            this.dust.explode(2, X - face * 6, Y);
+            this.dust.explode(3, X + face * 14, Y);
+          }
+          if (time - d.skidAt > 30 && d.speed > 1.5) {
+            d.skidAt = time;
+            this.skids.push([time, X + face * 6, Y, 2 + Math.round(d.speed * 0.6)]);
+            if (this.skids.length > 120) this.skids.shift();
           }
           break;
+        }
+        case FbAction.Sprint:
+          frame = 1 + (Math.floor(d.phase) % 4);
+          xf = X_SPRINT + (Math.floor(d.phase) % 4);
+          rot = face * 0.07;
+          // a puff of grass every other footfall
+          if (Math.floor(d.phase) !== Math.floor(d.phase - dist / 0.55) && Math.floor(d.phase) % 2 === 0) this.dust.explode(2, X - face * 8, Y);
+          break;
+        case FbAction.Trap: {
+          // the knee comes up to meet the ball, then settles
+          frame = 0;
+          xf = X_TRAP;
+          oy = since < 0.08 ? -2 : since < 0.16 ? -1 : 0;
+          break;
+        }
+        case FbAction.Skill: {
+          // a quick feint: the body sways one way and flicks the other, a whoosh round the feet
+          frame = 5;
+          xf = X_SKILL;
+          const t = Math.min(1, since / 0.35);
+          X += Math.round(Math.sin(t * Math.PI * 2) * 4);
+          rot = Math.sin(t * Math.PI * 2) * 0.16;
+          if (Math.floor(time / 50) % 2 === 0 && t < 0.6) flip = !flip;
+          if (t < 1) this.whoosh(X, Y, t, face);
+          break;
+        }
         case FbAction.Dive: {
           frame = 5;
           const up = d.vy < 0 ? -1 : 1;
@@ -915,6 +988,7 @@ export class FootballScene extends Phaser.Scene {
             const hop = Math.abs(Math.sin(time / 140 + d.slot * 0.7));
             oy = -Math.round(hop * (star ? 16 : 11));
             frame = hop > 0.3 ? 5 : 0;
+            if (hop > 0.3 && this.hasCeleb) xf = X_CELEB;
             if (hop < 0.12) {
               sx = 1.08;
               sy = 0.92;
@@ -960,7 +1034,14 @@ export class FootballScene extends Phaser.Scene {
         sy = 1 - charge * 0.05;
         if (charge >= 1) X += Math.round(Math.sin(time / 25));
       }
-      d.sprite.setFrame(frame).setFlipX(flip).setRotation(rot).setScale(sx, sy).setPosition(X, Y + oy).setDepth(Y);
+      if (xf >= 0 && d.xkey) {
+        if (d.sprite.texture.key !== d.xkey) d.sprite.setTexture(d.xkey, xf);
+        else d.sprite.setFrame(xf);
+      } else {
+        if (d.sprite.texture.key !== d.key) d.sprite.setTexture(d.key, frame);
+        else d.sprite.setFrame(frame);
+      }
+      d.sprite.setFlipX(flip).setRotation(rot).setScale(sx, sy).setPosition(X, Y + oy).setDepth(Y);
       if (kneel) d.sprite.setCrop(0, 0, 64, 72 - KNEEL_CUT);
       else if (d.sprite.isCropped) d.sprite.setCrop();
       // a beaten keeper gets a little rain cloud over the head
@@ -979,6 +1060,7 @@ export class FootballScene extends Phaser.Scene {
         d.ring.setVisible(false);
         d.marker.setVisible(false);
       }
+      if (mine) this.staminaBar(X, Y, act === FbAction.Sprint);
       const kind = mine ? "me" : pid !== undefined || d.human ? "human" : "cpu";
       if (ctlKey !== this.lastCtl || !d.label || this.zoomChanged) this.labelFor(d, kind);
       d.label?.setPosition(X, Y - (pid !== undefined ? (mine ? 88 : 84) : 74) + (kneel ? oy : Math.min(0, oy)));
@@ -1008,6 +1090,25 @@ export class FootballScene extends Phaser.Scene {
       if (pr && pose.owner === mySlot && pose.p.length > mySlot * 4 + 1) {
         x += pr.x - pose.p[mySlot * 4];
         y += pr.y - pose.p[mySlot * 4 + 1];
+      }
+      const od = pose.owner >= 0 ? this.ducks[pose.owner] : undefined;
+      if (od && z < 0.2) {
+        const face = od.sprite.flipX ? -1 : 1;
+        if (od.act === FbAction.Run && od.speed > 1) {
+          // a touch every two strides: knocked on a little, then the duck catches it up
+          const u = (od.phase / 4) % 1;
+          x += face * (u < 0.18 ? (u / 0.18) * 0.22 : 0.22 * (1 - (u - 0.18) / 0.82)) - face * 0.08;
+        } else if (od.act === FbAction.Skill) {
+          // rolled round the feet
+          const t = Math.min(1, (this.time.now - od.actAt) / 350);
+          const a = t * Math.PI * 2;
+          x += face * (Math.cos(a) - 1) * 0.35;
+          y += Math.sin(a) * 0.3;
+        } else if (od.act === FbAction.Trap) {
+          // dropping dead at the feet
+          const t = Math.min(1, (this.time.now - od.actAt) / 180);
+          z += (1 - t) * 0.25;
+        }
       }
       const [px2, py2, pz2] = this.ballLast;
       const inv = 1 / Math.max(dt, 0.001);
@@ -1081,6 +1182,45 @@ export class FootballScene extends Phaser.Scene {
 
     this.updateNets(time, dt);
     this.follow(pose, mySlot, dt, pr);
+  }
+
+  /** the sprint bar under my duck: shown while it is not full */
+  private staminaBar(X: number, Y: number, sprinting: boolean) {
+    const v = this.o.stamina();
+    if (v === undefined || (v > 0.985 && !sprinting)) return;
+    const w = 28;
+    const g = this.fxG;
+    const x0 = X - w / 2;
+    const y0 = Y + 7;
+    g.fillStyle(0x0b0d1c, 0.85).fillRect(x0 - 1, y0 - 1, w + 2, 5);
+    g.fillStyle(0x2a2f4d, 1).fillRect(x0, y0, w, 3);
+    const col = v < 0.08 ? (Math.floor(this.time.now / 120) % 2 ? 0xe8452c : 0x7a1d14) : v < 0.35 ? 0xff9a2a : 0x3ddc5a;
+    g.fillStyle(col, 1).fillRect(x0, y0, Math.round(w * clamp(v, 0, 1)), 3);
+    g.fillStyle(0xffffff, 0.35).fillRect(x0, y0, Math.round(w * clamp(v, 0, 1)), 1);
+  }
+
+  /** the skill move's whoosh: a white arc sweeping round the feet */
+  private whoosh(X: number, Y: number, t: number, face: number) {
+    const g = this.fxG;
+    const a0 = -Math.PI / 2 + t * Math.PI * 2 * face;
+    for (let i = 0; i < 6; i++) {
+      const a = a0 - face * i * 0.22;
+      const px = X + Math.cos(a) * 16;
+      const py = Y - 6 + Math.sin(a) * 6;
+      g.fillStyle(0xffffff, (0.85 - i * 0.14) * (1 - t * 0.6)).fillRect(Math.round(px) - 1, Math.round(py) - 1, i < 2 ? 3 : 2, 2);
+    }
+  }
+
+  /** slide marks: darker, flattened grass that fades out over a few seconds */
+  private drawSkids(time: number) {
+    const g = this.skidG;
+    g.clear();
+    while (this.skids.length && time - this.skids[0][0] > 3000) this.skids.shift();
+    for (const [t, x, y, w] of this.skids) {
+      const a = 0.32 * (1 - (time - t) / 3000);
+      g.fillStyle(0x2d5a1a, a).fillRect(x - w / 2, y - 1, w, 3);
+      g.fillStyle(0x9fd07a, a * 0.6).fillRect(x - w / 2, y - 2, w, 1);
+    }
   }
 
   get tension() {

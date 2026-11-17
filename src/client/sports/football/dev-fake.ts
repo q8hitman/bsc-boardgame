@@ -29,7 +29,9 @@ export class FakeMatch {
   private t = 0;
   private stageUntil = 0;
   private dir: [number, number] = [1, -1];
-  private inputs = new Map<string, FbInput & { bAt: number; prevA: boolean; prevB: boolean; at: number }>();
+  private inputs = new Map<string, FbInput & { bAt: number; prevA: boolean; prevB: boolean; prevK?: boolean; aq?: boolean; kq?: boolean; at: number }>();
+  stamina: Record<string, number> = {};
+  private tired: Record<string, boolean> = {};
   control: Record<string, number> = {};
   changed = true;
   private ownerSince = 0;
@@ -113,7 +115,9 @@ export class FakeMatch {
 
   input(pid: string, i: FbInput) {
     const prev = this.inputs.get(pid);
-    this.inputs.set(pid, { ...i, at: this.t, bAt: i.b && !prev?.b ? this.t : prev?.bAt ?? 0, prevA: prev?.a ?? false, prevB: prev?.b ?? false });
+    // a press that is released before the next step still counts (like the server's edge latch)
+    const keep = { aq: (i.a && !prev?.a) || !!prev?.aq, kq: (!!i.k && !prev?.k) || !!prev?.kq };
+    this.inputs.set(pid, { ...i, ...keep, prevK: prev?.prevK, at: this.t, bAt: i.b && !prev?.b ? this.t : prev?.bAt ?? 0, prevA: prev?.prevA ?? false, prevB: prev?.b ?? false });
   }
 
   private emit(k: number, s = -1) {
@@ -220,8 +224,8 @@ export class FakeMatch {
       const gk = st.roster[s].gk;
       const att = this.dir[team];
       p.cool = Math.max(0, p.cool - dt);
-      if (p.actUntil > this.t && (p.act === FbAction.Fall || p.act === FbAction.Kneel || p.act === FbAction.Slide || p.act === FbAction.Dive || p.act === FbAction.Kick)) {
-        if (p.act === FbAction.Slide || p.act === FbAction.Dive) {
+      if (p.actUntil > this.t && (p.act === FbAction.Fall || p.act === FbAction.Kneel || p.act === FbAction.Slide || p.act === FbAction.Dive || p.act === FbAction.Kick || p.act === FbAction.Skill || p.act === FbAction.Trap || (p.act === FbAction.Sprint && human.has(s)))) {
+        if (p.act === FbAction.Slide || p.act === FbAction.Dive || p.act === FbAction.Skill || p.act === FbAction.Sprint || p.act === FbAction.Trap) {
           p.x += p.vx * dt;
           p.y += p.vy * dt;
           p.vx *= 0.94;
@@ -276,6 +280,7 @@ export class FakeMatch {
         continue;
       }
       const pid = human.get(s);
+      let acted = false;
       if (!playing) {
         tx = p.home[0];
         ty = p.home[1];
@@ -285,13 +290,36 @@ export class FakeMatch {
         if (i && (i.x || i.y)) {
           tx = p.x + i.x * 3;
           ty = p.y + i.y * 3;
+          // like the engine: jog, or sprint on stamina
+          const st = this.stamina[pid] ?? 1;
+          if (st < 0.02) this.tired[pid] = true;
+          else if (st >= 0.15) this.tired[pid] = false;
+          const sp = !!i.s && !this.tired[pid];
+          speed = b.owner === s ? (sp ? 7.2 : 4.8) : sp ? 8.2 : 5.4;
+          this.stamina[pid] = Math.max(0, Math.min(1, st + (sp ? -0.2 : 1 / 6) * dt));
         } else if (!i) {
           // nobody's touching the stick in the dev page: let it play like the computer
           tx = b.x;
           ty = b.y;
         }
         if (i) {
-          if (i.a && !i.prevA) {
+          const kNow = !!i.k || !!i.kq;
+          i.kq = false;
+          if (kNow && !i.prevK) {
+            // skill move with the ball, a dash without
+            p.act = b.owner === s ? FbAction.Skill : FbAction.Sprint;
+            p.actUntil = this.t + (b.owner === s ? 0.35 : 0.25);
+            const sx = i.x || 0;
+            const sy = i.y || (p.y > 0 ? -1 : 1);
+            const l = Math.hypot(sx, sy) || 1;
+            p.vx = (sx / l) * (b.owner === s ? 7 : 9.5);
+            p.vy = (sy / l) * (b.owner === s ? 7 : 9.5);
+            acted = true;
+          }
+          i.prevK = !!i.k;
+          const aNow = i.a || !!i.aq;
+          i.aq = false;
+          if (aNow && !i.prevA) {
             if (b.owner === s) {
               const m = this.nearest(team, p.x + att * 8, p.y);
               if (m >= 0 && m !== s) this.kick(s, this.ps[m].x, this.ps[m].y, 14, 1.5, FbEvent.Pass);
@@ -300,6 +328,7 @@ export class FakeMatch {
               p.actUntil = this.t + 0.55;
               p.vx = (i.x || p.face) * 9;
               p.vy = i.y * 9;
+              acted = true;
             }
             i.prevA = true;
           }
@@ -344,6 +373,7 @@ export class FakeMatch {
           speed = 4.5;
         }
       }
+      if (acted) continue;
       const dx = tx - p.x;
       const dy = ty - p.y;
       const d = Math.hypot(dx, dy);
@@ -353,7 +383,8 @@ export class FakeMatch {
       p.x = Math.max(-HL - 1, Math.min(HL + 1, p.x + p.vx * dt));
       p.y = Math.max(-HW + 0.3, Math.min(HW - 0.3, p.y + p.vy * dt));
       if (Math.abs(p.vx) > 0.3) p.face = Math.sign(p.vx);
-      p.act = Math.hypot(p.vx, p.vy) > 0.6 ? FbAction.Run : FbAction.Idle;
+      const v2 = Math.hypot(p.vx, p.vy);
+      p.act = v2 > 6 ? FbAction.Sprint : v2 > 0.6 ? FbAction.Run : FbAction.Idle;
     }
 
     // ball
@@ -474,6 +505,13 @@ export class FakeMatch {
           }
         }
         if (best >= 0) {
+          if (Math.hypot(b.vx, b.vy) > 3) {
+            const q = this.ps[best];
+            q.act = FbAction.Trap;
+            q.actUntil = this.t + 0.2;
+            q.vx *= 0.45;
+            q.vy *= 0.45;
+          }
           b.owner = best;
           this.lastKicker = best;
           this.ownerSince = this.t;
@@ -502,6 +540,7 @@ export class FakeMatch {
       p,
       r: [+this.ref.x.toFixed(2), +this.ref.y.toFixed(2)],
       c: { ...this.control },
+      st: Object.fromEntries(Object.entries(this.stamina).map(([k, v]) => [k, +v.toFixed(2)])),
     };
     if (this.ev.length) f.ev = this.ev.splice(0);
     return f;

@@ -8,7 +8,9 @@ const errs = [];
 p.on("pageerror", (e) => errs.push(String(e)));
 p.on("console", (m) => m.type() === "error" && errs.push(m.text()));
 p.on("response", (r) => r.status() >= 400 && errs.push(r.status() + " " + r.url()));
-await p.setViewport({ width: +w, height: +h, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+// DESK=1: a computer (mouse + keyboard) instead of a phone
+const desk = !!process.env.DESK;
+await p.setViewport({ width: +w, height: +h, deviceScaleFactor: desk ? 1 : 2, isMobile: !desk, hasTouch: !desk });
 await p.goto("http://localhost:5173/", { waitUntil: "domcontentloaded" });
 await p.evaluate((g, n) => localStorage.setItem("duck-local", JSON.stringify({ game: g, humans: 1, names: ["سارة"], bots: n, rounds: 3 })), game, +bots);
 await p.goto("http://localhost:5173/?local", { waitUntil: "networkidle0" });

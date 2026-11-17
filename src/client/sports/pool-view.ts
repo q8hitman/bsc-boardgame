@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { DUCKS } from "../../shared/data";
-import { POCKETS, castAim } from "../../shared/pool/physics";
+import { POCKETS } from "../../shared/pool/physics";
 import { TURN_MS, placeWhite } from "../../shared/pool/rules";
 import { TABLE, type PoolBall, type PoolShot, type PoolTable } from "../../shared/pool/types";
 import type { Replay, Shot } from "../../shared/sports/types";
@@ -30,6 +30,8 @@ const ease = (t: number) => t * t * (3 - 2 * t);
 /** cue draw-back before a replayed shot (others' shots, and every shot on the projector) */
 const PRE = 0.62;
 const MAX_PULL = 0.24;
+/** the only aiming help: a short straight line from the white in the cue's direction (metres) */
+const AIM_STUB = 0.22;
 
 interface ReplayRT {
   r: Replay;
@@ -513,37 +515,11 @@ class PoolView implements SportView {
       sc.setGuide([]);
       return;
     }
-    const hit = castAim(balls, wv.x, wv.y, this.aim);
-    const lines: number[][] = [[wv.x + dx * R * 1.4, wv.y + dy * R * 1.4, hit.x - dx * R, hit.y - dy * R, 1, 1, 1, 0.95, 0.028]];
-    sc.ghost.visible = true;
-    sc.ghost.position.set(hit.x, R, hit.y);
-    if (hit.ball >= 0) {
-      const ob = balls.find((b) => b.n === hit.ball)!;
-      let nx = ob.x - hit.x;
-      let ny = ob.y - hit.y;
-      const nl = Math.hypot(nx, ny) || 1;
-      nx /= nl;
-      ny /= nl;
-      const cut = dx * nx + dy * ny;
-      const len = 0.1 + 0.42 * cut;
-      lines.push([ob.x + nx * R * 1.3, ob.y + ny * R * 1.3, ob.x + nx * (R + len), ob.y + ny * (R + len), 1, 0.82, 0.25, 1, 0.022]);
-      // where the white goes off (tangent line), shorter for fuller hits
-      let tx = dx - cut * nx;
-      let ty = dy - cut * ny;
-      const tl = Math.hypot(tx, ty);
-      if (tl > 0.05) {
-        tx /= tl;
-        ty /= tl;
-        const l2 = 0.05 + 0.2 * tl;
-        lines.push([hit.x + tx * R * 1.2, hit.y + ty * R * 1.2, hit.x + tx * (R + l2), hit.y + ty * (R + l2), 0.85, 0.9, 1, 0.5, 0.022]);
-      }
-    } else if (hit.nx || hit.ny) {
-      // off the cushion
-      const d = dx * hit.nx + dy * hit.ny;
-      const rx = dx - 2 * d * hit.nx;
-      const ry = dy - 2 * d * hit.ny;
-      lines.push([hit.x + rx * R * 1.2, hit.y + ry * R * 1.2, hit.x + rx * 0.2, hit.y + ry * 0.2, 1, 1, 1, 0.45, 0.026]);
-    }
+    // no prediction (the owner's call): no ghost ball, no paths after contact. Only a short line showing the
+    // direction the cue points; where the balls go is for the player to judge.
+    void balls;
+    sc.ghost.visible = false;
+    const lines: number[][] = [[wv.x + dx * R * 1.4, wv.y + dy * R * 1.4, wv.x + dx * (R + AIM_STUB), wv.y + dy * (R + AIM_STUB), 1, 1, 1, 0.7, 0.024]];
     sc.setGuide(lines);
     // hints
     if (this.pdrag) this.hint(`القوة ${ar(Math.round(this.power * 100))}٪ · فك عشان تضرب`, t);

@@ -54,6 +54,10 @@ function checkWorld(e: FbEngine, bad: string[]) {
   const bad: string[] = [];
   let kicks = 0;
   let saves = 0;
+  let sprintFrames = 0;
+  let trickCount = 0;
+  let trapCount = 0;
+  let stBad = 0;
   let tackles = 0;
   let passes = 0;
   for (let seed = 1; seed <= 8; seed++) {
@@ -64,6 +68,13 @@ function checkWorld(e: FbEngine, bad: string[]) {
       e.step();
       steps++;
       checkWorld(e, bad);
+      for (const d of e.ducks) {
+        const a = e.action(d);
+        if (a === FbAction.Sprint) sprintFrames++;
+        if (a === FbAction.Skill && d.trick > TUNE.trickTime - DT * 1.5) trickCount++;
+        if (a === FbAction.Trap && d.trap > TUNE.trapTime - DT * 1.5) trapCount++;
+        if (!(d.stamina >= 0 && d.stamina <= 1)) stBad++;
+      }
       for (const [k] of e.events.splice(0)) {
         if (k === 1) kicks++;
         if (k === 2) passes++;
@@ -80,6 +91,8 @@ function checkWorld(e: FbEngine, bad: string[]) {
   ok(ms < 8 * 3000, `engine: 8 × 3 simulated minutes, computer vs computer, in ${ms} ms`);
   ok(avg >= 1 && Math.max(...goals) <= 14, `engine: goals per match ${goals.join(",")} (avg ${avg.toFixed(1)})`);
   ok(bad.length === 0, `engine: no NaN, nobody / no ball outside the boards, one owner at the feet${bad.length ? ": " + [...new Set(bad)].slice(0, 5).join("; ") : ""}`);
+  ok(sprintFrames > 0 && stBad === 0, `engine: computer ducks sprint (${((sprintFrames * DT) / 8 / 10).toFixed(1)} s of sprint per duck per match), stamina stays in 0..1`);
+  ok(trickCount > 0 && trapCount > 0, `engine: computer ducks use skill moves (${(trickCount / 8).toFixed(1)}/match) and trap passes (${(trapCount / 8).toFixed(0)}/match)`);
   console.log(`   per match: ${(passes / 8).toFixed(0)} passes, ${(kicks / 8).toFixed(1)} shots/kicks, ${(saves / 8).toFixed(1)} saves, ${(tackles / 8).toFixed(0)} tackles`);
 }
 
@@ -141,6 +154,113 @@ function checkWorld(e: FbEngine, bad: string[]) {
   e.step();
   ok(e.control().me !== undefined, "engine: the phone comes back and controls a duck again");
   ok(switches > 5 && switches < 2 * 120 * 4, `engine: control switched ${switches} times in 2 minutes (hysteresis), had the ball ${(carried * DT).toFixed(0)} s`);
+}
+
+{
+  // sprint vs jog, stamina; two people on blue so each keeps their own duck (no switching)
+  const fresh = () => {
+    const e = new FbEngine(cpuRoster(), { seed: 11, halfSeconds: 600 });
+    e.setStage("play");
+    for (const d of e.ducks) Object.assign(d, { x: d.team ? 25 : -25, y: d.slot * 3 - 14, vx: 0, vy: 0 });
+    Object.assign(e.ball, { x: 0, y: 18, owner: e.keeperOf(1).slot, held: true });
+    e.keeperOf(1).hasT = -999; // he keeps it: nobody chases
+    e.addPerson("p1", 0, 1);
+    e.addPerson("p2", 0, 2);
+    Object.assign(e.ducks[1], { x: -28, y: 0 });
+    return e;
+  };
+  const run = (e: FbEngine, secs: number, inp: { x: number; y: number; s?: boolean }) => {
+    let top = 0;
+    let late = 0;
+    let wasSprint = false;
+    for (let i = 0; i < secs * 30; i++) {
+      e.input("p1", { x: inp.x, y: inp.y, a: false, b: false, s: inp.s });
+      e.ball.owner = e.keeperOf(1).slot;
+      e.step();
+      const d = e.ducks[1];
+      top = Math.max(top, Math.hypot(d.vx, d.vy));
+      if (i >= secs * 15) late = Math.max(late, Math.hypot(d.vx, d.vy));
+      if (i >= secs * 15 && e.action(d) === FbAction.Sprint) wasSprint = true;
+    }
+    return { top, late, wasSprint };
+  };
+  let e = fresh();
+  const jog = run(e, 1.5, { x: 1, y: 0 });
+  e = fresh();
+  const spr = run(e, 1.5, { x: 1, y: 0, s: true });
+  ok(Math.abs(jog.top - TUNE.jogSpeed) < 0.3 && Math.abs(spr.top - TUNE.sprintSpeed) < 0.4 && spr.wasSprint && !jog.wasSprint,
+    `sprint: jog ${jog.top.toFixed(1)} m/s, sprint ${spr.top.toFixed(1)} m/s (action Sprint)`);
+  const st2 = e.ducks[1].stamina;
+  const fr = e.frame(0);
+  ok(st2 < 0.75 && st2 > 0.6 && fr.st?.p1 === Math.round(st2 * 100) / 100, `stamina: ${st2.toFixed(2)} after 1.5 s of sprint, sent in the frame (st.p1 = ${fr.st?.p1})`);
+  // keep sprinting (up and down the pitch) until it runs dry
+  let t = 1.5;
+  while (e.ducks[1].stamina > 0 && t < 10) {
+    run(e, 0.5, { x: e.ducks[1].x > 20 ? -1 : e.ducks[1].x < -20 ? 1 : Math.sign(e.ducks[1].vx) || 1, y: 0, s: true });
+    t += 0.5;
+  }
+  const dry = run(e, 0.8, { x: e.ducks[1].x > 0 ? -1 : 1, y: 0, s: true }); // (it comes back at 0.15, ~0.9 s later)
+  ok(t >= 4.5 && t <= 6 && e.ducks[1].stamina < 0.2 && dry.late < TUNE.jogSpeed + 0.3 && !dry.wasSprint,
+    `stamina: runs dry after ${t.toFixed(1)} s of sprint; then holding sprint does nothing (${dry.late.toFixed(1)} m/s, a jog)`);
+  run(e, 6.2, { x: 0, y: 0 });
+  ok(e.ducks[1].stamina > 0.97, `stamina: back to ${e.ducks[1].stamina.toFixed(2)} after ~6 s of rest`);
+}
+
+{
+  // a skill move beats a slide tackle and a standing tackle; without it the tackle wins the ball
+  const duel = (trick: boolean, slide: boolean) => {
+    const e = new FbEngine(cpuRoster(), { seed: 21, halfSeconds: 600 });
+    e.setStage("play");
+    for (const d of e.ducks) Object.assign(d, { x: d.team ? 28 : -28, y: d.slot * 3 - 14, vx: 0, vy: 0 });
+    e.addPerson("p1", 0, 1);
+    e.addPerson("p2", 0, 2);
+    const a = e.ducks[1];
+    const def = e.ducks[6];
+    Object.assign(a, { x: 0, y: 0, hx: 1, hy: 0, hasT: 5 });
+    e.ball.owner = 1;
+    Object.assign(def, { x: slide ? 1.25 : 0.95, y: 0, hx: -1, hy: 0 });
+    if (trick) e.trickStart(a, 0, 1);
+    if (slide) e.slideStart(def, -1, 0);
+    let stumbled = false;
+    for (let i = 0; i < 10; i++) {
+      e.step();
+      if (def.lock > 0.2) stumbled = true;
+      if (e.ball.owner !== 1) break;
+    }
+    return { kept: e.ball.owner === 1, stumbled, act: e.action(a) };
+  };
+  const s1 = duel(true, true);
+  const s0 = duel(false, true);
+  ok(s1.kept && s1.stumbled && !s0.kept, `skill move: a slide tackle in its window misses and the tackler stumbles (without it: the slide wins the ball)`);
+  let kept = 0;
+  let lost = 0;
+  for (let i = 0; i < 20; i++) {
+    const r1 = duel(true, false);
+    if (r1.kept) kept++;
+  }
+  for (let i = 0; i < 20; i++) if (!duel(false, false).kept) lost++;
+  ok(kept === 20, `skill move: a standing tackle never wins it in the window (kept ${kept}/20; a plain dribbler right at him loses it ${lost}/20 within 0.33 s)`);
+  ok(duel(true, false).act === FbAction.Skill, "skill move: the dribbler shows action Skill during it");
+}
+
+{
+  // first touch: a pass arrives, the receiver traps it
+  const e = new FbEngine(cpuRoster(), { seed: 31, halfSeconds: 600 });
+  e.setStage("play");
+  for (const d of e.ducks) Object.assign(d, { x: d.team ? 28 : -28, y: d.slot * 3 - 14, vx: 0, vy: 0 });
+  Object.assign(e.ducks[1], { x: 0, y: 0, hx: 1, hy: 0, hasT: 2 });
+  Object.assign(e.ducks[3], { x: 12, y: 0 });
+  e.ball.owner = 1;
+  e.pass(e.ducks[1], 3, 0);
+  let trapped = false;
+  let sawTrap = false;
+  for (let i = 0; i < 90 && !trapped; i++) {
+    e.step();
+    if (e.action(e.ducks[3]) === FbAction.Trap) sawTrap = true;
+    if (e.ball.owner === 3) trapped = true;
+  }
+  e.step();
+  ok(trapped && (sawTrap || e.action(e.ducks[3]) === FbAction.Trap), "first touch: the receiver of a pass shows a Trap");
 }
 
 {
@@ -242,6 +362,7 @@ const fbOf = (s: GameState) => s.football!;
   ok(rate >= 12 && rate <= 18, `room: ${rate} frames a second`);
   ok(frames.every((fr) => fr.p.length === 40 && fr.b.length === 4 && fr.r.length === 2), "room: every frame has 10 ducks × 4 numbers, the ball and the referee");
   ok(frames.every((fr) => typeof fr.c[me] === "number"), "room: the phone controls a duck in every frame (c)");
+  ok(frames.every((fr) => typeof fr.st?.[me] === "number" && fr.st[me] >= 0 && fr.st[me] <= 1), "room: every frame carries the phone's stamina (st)");
   const json = JSON.stringify(frames[frames.length - 1]);
   ok(json.length < 400, `room: a frame is small (${json.length} bytes as JSON)`);
   // push the joystick right then down: the controlled duck moves that way
