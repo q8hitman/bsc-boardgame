@@ -29,8 +29,46 @@ function canvas(w: number, h: number) {
 /* ------------------------------------------------------------------ grass + markings */
 export const PITCH_TEX = { x: WORLD.left, y: FAR_BOARD_FOOT - 2, w: WORLD.right - WORLD.left, h: NEAR_BOARD_TOP - FAR_BOARD_FOOT + 4 };
 
+/** the pitch is drawn once per page and reused by every match after (it is the slowest thing to build: on a phone
+ *  it used to stall the start of every match) */
+let pitchCache: HTMLCanvasElement | null = null;
+/** the fine grass grain (speckles, blades, mowing grain) as brightness offsets on a 512 x 256 tile: three hashes a
+ *  pixel over the whole 3000 x 860 pitch was most of the build time, the tile repeats unnoticed under the mottling */
+let grain: Float32Array | null = null;
+const GW = 512;
+const GH = 256;
+function grainTile() {
+  if (grain) return grain;
+  grain = new Float32Array(GW * GH);
+  for (let py = 0; py < GH; py++)
+    for (let px = 0; px < GW; px++) {
+      let k = 0;
+      const r = hash(px, py);
+      if (r < 0.1) k -= 0.07;
+      else if (r < 0.17) k += 0.06;
+      // little vertical blades, two pixels tall
+      if (hash(px * 3 + 1, (py >> 1) * 7) < 0.045) k -= 0.12;
+      else if (hash(px * 5 + 2, (py >> 1) * 11) < 0.02) k += 0.1;
+      // diagonal mowing grain
+      if (((px + (py >> 1)) & 7) === 0 && r < 0.5) k -= 0.03;
+      grain[py * GW + px] = k;
+    }
+  return grain;
+}
+/** warm the pitch up ahead of time (the menu calls this while the player is still choosing) */
+export function preparePitch() {
+  drawPitch();
+}
+
 export function drawPitch(): HTMLCanvasElement {
+  if (pitchCache) return pitchCache;
+  pitchCache = buildPitch();
+  return pitchCache;
+}
+
+function buildPitch(): HTMLCanvasElement {
   const { x: ox, y: oy, w, h } = PITCH_TEX;
+  const gr = grainTile();
   const c = canvas(w, h);
   const g = c.getContext("2d")!;
   const img = g.createImageData(w, h);
@@ -44,44 +82,45 @@ export function drawPitch(): HTMLCanvasElement {
   const gw = Math.ceil(w / cell) + 2;
   const gh = Math.ceil(h / cell) + 2;
   const lf = new Float32Array(gw * gh).map((_, i) => hash(i % gw, ((i / gw) | 0) + 777) - 0.5);
-  const lfAt = (x: number, y: number) => {
-    const fx = x / cell;
-    const fy = y / cell;
-    const ix = fx | 0;
-    const iy = fy | 0;
-    const u = fx - ix;
-    const v = fy - iy;
-    const a = lf[iy * gw + ix] * (1 - u) + lf[iy * gw + ix + 1] * u;
-    const b = lf[(iy + 1) * gw + ix] * (1 - u) + lf[(iy + 1) * gw + ix + 1] * u;
-    return a * (1 - v) + b * v;
-  };
   const endPx = END_X * PPM;
+  // per column: the stripe colour and where it falls between two mottling cells (the inner loop only adds)
+  const colR = new Float32Array(w);
+  const colG = new Float32Array(w);
+  const colB = new Float32Array(w);
+  const colI = new Int32Array(w);
+  const colU = new Float32Array(w);
+  for (let px = 0; px < w; px++) {
+    const X = px + ox;
+    const base = Math.abs(X) > endPx ? apron : Math.floor((X + HALF_L * PPM) / stripe) % 2 === 0 ? light : dark;
+    colR[px] = base[0];
+    colG[px] = base[1];
+    colB[px] = base[2];
+    const fx = px / cell;
+    colI[px] = fx | 0;
+    colU[px] = fx - (fx | 0);
+  }
   for (let py = 0; py < h; py++) {
     const Y = py + oy;
     // the far side is a touch darker, like the reference's light falloff
     const fall = 0.94 + 0.08 * ((Y - FAR_BOARD_FOOT) / (NEAR_BOARD_TOP - FAR_BOARD_FOOT));
+    const fy = py / cell;
+    const iy = fy | 0;
+    const v = fy - iy;
+    const r0 = iy * gw;
+    const r1 = r0 + gw;
+    const grow = (py & (GH - 1)) * GW;
+    let o = py * w * 4;
     for (let px = 0; px < w; px++) {
-      const X = px + ox;
-      let base: [number, number, number];
-      if (Math.abs(X) > endPx) base = apron;
-      else {
-        const band = Math.floor((X + HALF_L * PPM) / stripe);
-        base = band % 2 === 0 ? light : dark;
-      }
-      let k = fall + Math.round(lfAt(px, py) * 10) * 0.012;
-      const r = hash(px, py);
-      if (r < 0.1) k -= 0.07;
-      else if (r < 0.17) k += 0.06;
-      // little vertical blades, two pixels tall
-      if (hash(px * 3 + 1, (py >> 1) * 7) < 0.045) k -= 0.12;
-      else if (hash(px * 5 + 2, (py >> 1) * 11) < 0.02) k += 0.1;
-      // diagonal mowing grain
-      if (((px + (py >> 1)) & 7) === 0 && r < 0.5) k -= 0.03;
-      const o = (py * w + px) * 4;
-      d[o] = Math.min(255, base[0] * k);
-      d[o + 1] = Math.min(255, base[1] * k);
-      d[o + 2] = Math.min(255, base[2] * k);
+      const ix = colI[px];
+      const u = colU[px];
+      const lv = (lf[r0 + ix] * (1 - u) + lf[r0 + ix + 1] * u) * (1 - v) + (lf[r1 + ix] * (1 - u) + lf[r1 + ix + 1] * u) * v;
+      const k = fall + Math.round(lv * 10) * 0.012 + gr[grow + (px & (GW - 1))];
+      // (a clamped array: >255 is 255)
+      d[o] = colR[px] * k;
+      d[o + 1] = colG[px] * k;
+      d[o + 2] = colB[px] * k;
       d[o + 3] = 255;
+      o += 4;
     }
   }
   // ---- markings
@@ -519,7 +558,15 @@ function boardPanel(ad: Ad, logos: HTMLImageElement | null, goal = false): HTMLC
 }
 
 /** One long board strip (the length of the far or near side), the ads shuffled so the two sides differ. */
+/** the ad boards and the near stand are the same every match: drawn once per page */
+const boardCache = new Map<string, HTMLCanvasElement>();
 export function drawBoards(len: number, seed: number, logos: HTMLImageElement | null, goal = false): HTMLCanvasElement {
+  const key = `b${len},${seed},${goal},${logos ? 1 : 0}`;
+  let c = boardCache.get(key);
+  if (!c) boardCache.set(key, (c = buildBoards(len, seed, logos, goal)));
+  return c;
+}
+function buildBoards(len: number, seed: number, logos: HTMLImageElement | null, goal: boolean): HTMLCanvasElement {
   const c = canvas(len, BOARD_H + 4);
   const g = c.getContext("2d")!;
   const goalAds: Ad[] = [
@@ -569,6 +616,12 @@ export function drawEndBoard(): HTMLCanvasElement {
 
 /** the near stand behind the bottom boards: concrete steps and seat backs (the fans are sprites on top) */
 export function drawNearStand(width: number, height: number): HTMLCanvasElement {
+  const key = `n${width},${height}`;
+  let c = boardCache.get(key);
+  if (!c) boardCache.set(key, (c = buildNearStand(width, height)));
+  return c;
+}
+function buildNearStand(width: number, height: number): HTMLCanvasElement {
   const c = canvas(width, height);
   const g = c.getContext("2d")!;
   g.fillStyle = "#1c2240";

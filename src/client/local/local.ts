@@ -41,6 +41,7 @@ export function startLocal(app: HTMLElement) {
 
   function setup() {
     const game = GAMES.find((g) => g.id === cfg.game) ?? GAMES[0];
+    if (game.id === "football") warmFootball();
     // a board always has 4 seats (the computer takes the rest); the card game is free: 2 people alone, or bots too
     const cards = !BOARDS[game.id]; // card game and sports: free seats
     const maxBots = MAX_PLAYERS - cfg.humans;
@@ -104,6 +105,18 @@ export function startLocal(app: HTMLElement) {
     app.querySelector("#go")!.addEventListener("click", () => play());
   }
 
+  /** football picked: load its code (Phaser is 1.4 MB to parse) while the player is still in this menu, so the
+   *  match itself starts without that stall */
+  let warmed = false;
+  function warmFootball() {
+    if (warmed) return;
+    warmed = true;
+    const go = () => void import("../sports/football-view").catch(() => (warmed = false));
+    const idle = (window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback;
+    if (idle) idle(go, { timeout: 1500 });
+    else setTimeout(go, 300);
+  }
+
   async function play() {
     const server = useLocalServer();
     setLocalConnect(() => server.connect() as unknown as ClientSocket);
@@ -149,6 +162,10 @@ export function startLocal(app: HTMLElement) {
     server.connect().emit("screen:create", () => {});
     while (!server.room) await new Promise((r) => setTimeout(r, 40));
     const room = server.room;
+    // the game is chosen before the phone joins: otherwise its first view is the island board (a whole second
+    // Phaser game, the big island picture, every token), built and thrown away a moment later; on a phone that
+    // was seconds of a frozen screen before the match (board games keep their order: seats fill after the join)
+    if (!BOARDS[cfg.game]) room.setBoard(cfg.game);
     const name = (cfg.names[0] ?? "").trim() || "لاعب ١";
     startController(app.querySelector<HTMLDivElement>("#lpP0")!, room.code, { name, phone: true });
     while (room.state.players.length < 1) await new Promise((r) => setTimeout(r, 40));

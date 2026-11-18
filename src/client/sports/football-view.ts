@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { FbEvent, type FbFrame, type FbInput, type FbState } from "../../shared/football/types";
 import type { GameState } from "../../shared/types";
-import { FONT } from "./football/art";
+import { FONT, preparePitch } from "./football/art";
 import { FootballAudio } from "./football/audio";
 import { FootballControls } from "./football/controls";
 import "./football/football.css";
@@ -142,6 +142,10 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
       Promise.all([document.fonts?.load(`800 20px ${FONT}`, "قووول نادي"), document.fonts?.load(`700 12px ${FONT}`, "عبدالله")]),
       new Promise((r) => setTimeout(r, 1500)),
     ]).catch(() => null);
+    // draw the pitch while the font loads (the slowest part of building the scene; cached for later matches)
+    setTimeout(() => {
+      if (!dead) preparePitch();
+    }, 0);
     void fontReady.then(startGame);
     const { w, h } = size();
     if (opts.mode === "personal") hud.showHint(h > w * 1.1);
@@ -264,6 +268,8 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
       if (!st) return;
       scene?.setRoster(st.roster);
       scene?.setMatch(st.stage, st.lastGoal, st.result);
+      // one person against the computer can pause (the server checks the same)
+      controls.setPausable(!pad && st.stage === "play" && phase === "sport" && st.roster.filter((p) => p.pid).length === 1);
       const g = st.lastGoal;
       if (g && g.at !== lastGoalAt) {
         const fresh = lastGoalAt !== 0 || serverNow() - g.at < 6000;
@@ -294,7 +300,15 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
       controls.destroy();
       hud.destroy();
       audio.destroy();
+      // give the WebGL context back at once: phones allow only a few, and match after match without a reload the
+      // old ones (left to the garbage collector) made a later match start slowly or not draw at all
+      const gl = (game?.renderer as unknown as { gl?: WebGLRenderingContext } | undefined)?.gl;
       game?.destroy(true);
+      try {
+        gl?.getExtension("WEBGL_lose_context")?.loseContext();
+      } catch {
+        /* already gone */
+      }
       game = null;
       scene = null;
       wrap.remove();

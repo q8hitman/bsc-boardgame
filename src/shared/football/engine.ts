@@ -114,9 +114,18 @@ export const TUNE = {
   brakeFactor: 1.7,
   /** a tapped shot still has this much power (0..1); holding fills the rest */
   shotTapPower: 0.28,
-  /** standing tackle: an opponent this close to the ball can poke it away (rate per second, scaled by skill) */
+  /** standing tackle: a defender this close to the ball commits to one (a computer duck: rate per second scaled by
+   *  skill; a person's duck: when he runs in within pokeR). It is never a silent dice roll: he leans in for
+   *  tackleWind seconds (you see it coming and can turn away), then for tackleHit seconds his boot gets the ball if
+   *  it is within tackleReach of it. A miss leaves him stumbling for tackleMiss. */
   pokeR: 0.8,
-  pokeRate: 2.2,
+  pokeRate: 1.6,
+  tackleStart: 1.25,
+  tackleWind: 0.16,
+  tackleHit: 0.12,
+  tackleReach: 0.62,
+  tackleMiss: 0.42,
+  tackleCd: 0.9,
   /** a fresh owner can't be poked for this long */
   pokeGrace: 0.4,
   /** poke rate multiplier when the ball runs into the defender's body */
@@ -129,7 +138,9 @@ export const TUNE = {
   celebrateT: 2.8,
   /** a person's solo control switches to a nearer duck only when it is this much nearer, after this long */
   switchMargin: 2.0,
-  switchHold: 0.6,
+  switchHold: 0.9,
+  /** a computer defender starts reacting to a new pass after about this long (s, less for skilled ones) */
+  aiReadPass: 0.28,
 };
 
 export type EngStage = "idle" | "kickoff" | "play" | "goal" | "pen";
@@ -202,6 +213,13 @@ export interface Duck {
   wantUntil: number;
   /** a jockeying defender lunges in for the ball until this time */
   lunge: number;
+  /** a committed standing tackle: time left (lean in, then the contact window), its direction, the wait before the
+   *  next one, and the stumble after a miss / being beaten (shown as a stagger) */
+  tackle: number;
+  tdx: number;
+  tdy: number;
+  tackleCd: number;
+  stagger: number;
   /** a pass going past him: the kick id he already decided about, and whether he gets a foot to it */
   cutKick: number;
   cutOk: boolean;
@@ -388,7 +406,7 @@ export class FbEngine {
         x: 0, y: 0, vx: 0, vy: 0, hx: 1, hy: 0, face: 1, tx: 0, ty: 0, run: 0, think: (p.slot % 5) * 0.03, spotT: 0, spotX: 0, spotY: 0,
         kickT: 0, slide: 0, sdx: 0, sdy: 0, slideCd: 0, fall: 0, kneel: 0, lock: 0, noPick: 0, hasT: 0, dive: 0, dvx: 0, dvy: 0,
         stamina: 1, tired: false, sprinting: false, wantSprint: false, trick: 0, tkx: 0, tky: 0, trickCd: 0, dash: 0, dkx: 0, dky: 0, dashCd: 0, trap: 0, touch: 0,
-        saveShot: -1, saveOk: false, charge: -1, celebrate: false, mope: false, wantBy: -1, wantUntil: 0, lunge: 0, cutKick: -1, cutOk: false,
+        saveShot: -1, saveOk: false, charge: -1, celebrate: false, mope: false, wantBy: -1, wantUntil: 0, lunge: 0, tackle: 0, tdx: 1, tdy: 0, tackleCd: 0, stagger: 0, cutKick: -1, cutOk: false,
       };
     });
     this.ctrlBy = this.ducks.map(() => null);
@@ -618,7 +636,11 @@ export class FbEngine {
             else if (near.slot !== cur.slot && p.ctrlT > TUNE.switchHold && cur.slide <= 0) {
               const dc = hyp(cur.x - b.x, cur.y - b.y);
               const dn = hyp(near.x - b.x, near.y - b.y);
-              if (dn < dc - TUNE.switchMargin) p.ctrl = near.slot;
+              // the player is running his duck at the ball himself: leave him on it unless another is much closer
+              // (control jumping away from the duck you are steering felt like losing him)
+              const sm = hyp(p.x, p.y);
+              const chasing = sm > 0.3 && dc > 0.5 && ((b.x - cur.x) * p.x + (b.y - cur.y) * p.y) / (sm * dc) > 0.6;
+              if (dn < dc - TUNE.switchMargin * (chasing ? 2.5 : 1)) p.ctrl = near.slot;
             }
           }
           // b without the ball: switch now to the duck nearest the ball (not the one we have)
@@ -766,6 +788,8 @@ export class FbEngine {
     d.noPick = Math.max(0, d.noPick - dt);
     d.trickCd = Math.max(0, d.trickCd - dt);
     d.dashCd = Math.max(0, d.dashCd - dt);
+    d.tackleCd = Math.max(0, d.tackleCd - dt);
+    d.stagger = Math.max(0, d.stagger - dt);
     const mine = this.ball.owner === d.slot;
     if (mine) d.hasT += dt;
     else d.hasT = 0;
@@ -798,6 +822,19 @@ export class FbEngine {
       d.vx = d.dvx;
       d.vy = d.dvy;
       if (d.dive <= 0) d.lock = 0.35;
+    } else if (d.tackle > 0) {
+      // a standing tackle: a step in towards the ball while leaning, planted for the contact
+      d.tackle -= dt;
+      const v = d.tackle > TUNE.tackleHit ? 3 : 1.2;
+      d.vx = d.tdx * v;
+      d.vy = d.tdy * v;
+      if (d.tackle <= 0) {
+        // missed: off balance for a moment, the carrier gets away
+        d.lock = TUNE.tackleMiss;
+        d.noPick = TUNE.tackleMiss * 0.6;
+        d.stagger = TUNE.tackleMiss;
+        d.tackleCd = TUNE.tackleCd;
+      }
     } else if (d.lock > 0) {
       d.lock -= dt;
       const f = Math.pow(0.7, dt * 30);
@@ -938,6 +975,10 @@ export class FbEngine {
     d.celebrate = false;
     d.think -= dt;
     if (d.think > 0 && !(this.ball.owner === d.slot && d.hasT < dt * 1.5)) return;
+    // a computer defender reads a new pass like a person would: a moment late. Planning from the ball's exact
+    // path the instant it was kicked cut out passes no player could have (keepers keep their own timing)
+    const bl = this.ball;
+    if (!d.gk && bl.owner < 0 && !bl.shot && bl.lastTeam >= 0 && bl.lastTeam !== d.team && this.time - bl.kickAt < TUNE.aiReadPass * (1.3 - d.skill * 0.6)) return;
     d.think = 0.1 + (1 - d.skill) * 0.12 + this.rng() * 0.04;
     if (d.gk) keeperThink(this, d);
     else aiThink(this, d);
@@ -1472,6 +1513,8 @@ export class FbEngine {
   /** a tackler is beaten by a skill move: he stumbles */
   private beaten(d: Duck) {
     d.slide = 0;
+    d.tackle = 0;
+    d.stagger = TUNE.stumble;
     d.lock = TUNE.stumble;
     d.noPick = TUNE.stumble;
     d.vx *= 0.3;
@@ -1901,23 +1944,19 @@ export class FbEngine {
       }
     }
     if (b.owner >= 0) {
-      // pokes: an opponent at the ball can knock it away
+      // standing tackles: a defender at the ball commits to one (seen coming), then gets it only if his boot reaches
+      // it during the contact window; never a silent dice roll at the carrier's feet
       if (b.held) return;
       const o = this.ducks[b.owner];
-      if (o.hasT < TUNE.pokeGrace) return;
       for (const d of this.ducks) {
-        if (d.team === o.team || d.fall > 0 || d.slide > 0 || d.noPick > 0 || d.lock > 0) continue;
-        const bd = hyp(b.x - d.x, b.y - d.y);
-        if (bd > TUNE.pokeR) continue;
-        const rate = this.isHuman(d) ? 2.6 : TUNE.pokeRate * (0.5 + d.skill);
-        // dribbling straight into a duck's feet (the ball runs into his body) is much riskier than him reaching in
-        const block = bd < TUNE.duckR + BALL_R ? TUNE.blockFactor : 1;
-        const exposed = o.sprinting ? TUNE.sprintPokeFactor : 1;
-        // a carrier running away from a defender behind him keeps his body between them
-        const osp = hyp(o.vx, o.vy);
-        const behind = osp > 1.5 && ((d.x - o.x) * o.vx + (d.y - o.y) * o.vy) / osp < -0.1;
-        const shield = behind ? TUNE.shieldFactor : 1;
-        if (this.rng() < rate * block * exposed * shield * dt) {
+        if (d.team === o.team || d.gk) continue;
+        if (d.tackle > 0) {
+          if (d.tackle > TUNE.tackleHit) continue;
+          const fx = d.x + d.tdx * 0.45;
+          const fy = d.y + d.tdy * 0.45;
+          if (hyp(b.x - fx, b.y - fy) > TUNE.tackleReach) continue;
+          d.tackle = 0;
+          d.tackleCd = TUNE.tackleCd;
           if (o.trick > 0) {
             // he goes for it and the skill move takes the ball away from him
             this.beaten(d);
@@ -1939,9 +1978,35 @@ export class FbEngine {
           d.noPick = 0;
           this.ev(FbEvent.Tackle, d.slot);
           // a clean tackle more often than not: he comes away with it
-          if (this.rng() < (this.isHuman(d) ? 0.55 : 0.4 + 0.25 * d.skill)) this.take(d);
+          if (this.rng() < (this.isHuman(d) ? 0.6 : 0.45 + 0.25 * d.skill)) this.take(d);
           else d.noPick = 0.1;
           return;
+        }
+        if (o.hasT < TUNE.pokeGrace || d.fall > 0 || d.slide > 0 || d.noPick > 0 || d.lock > 0 || d.tackleCd > 0 || d.kickT > 0) continue;
+        const bd = hyp(b.x - d.x, b.y - d.y);
+        if (bd > TUNE.tackleStart) continue;
+        let go: boolean;
+        if (this.ctrlBy[d.slot]) go = bd < TUNE.pokeR;
+        else {
+          // dribbling straight into a duck's feet invites the tackle; a sprinting carrier is exposed; one running
+          // away from a defender behind him keeps his body between them
+          const block = bd < TUNE.duckR + BALL_R + 0.2 ? TUNE.blockFactor : 1;
+          const exposed = o.sprinting ? TUNE.sprintPokeFactor : 1;
+          const osp = hyp(o.vx, o.vy);
+          const behind = osp > 1.5 && ((d.x - o.x) * o.vx + (d.y - o.y) * o.vy) / osp < -0.1;
+          const shield = behind ? TUNE.shieldFactor : 1;
+          go = this.rng() < TUNE.pokeRate * (0.5 + d.skill) * block * exposed * shield * dt;
+        }
+        if (go) {
+          // he aims where the ball will be when his boot gets there
+          const ax = b.x + b.vx * TUNE.tackleWind - d.x;
+          const ay = b.y + b.vy * TUNE.tackleWind - d.y;
+          const am = hyp(ax, ay) || 1;
+          d.tdx = ax / am;
+          d.tdy = ay / am;
+          d.tackle = TUNE.tackleWind + TUNE.tackleHit;
+          d.hx = d.tdx;
+          d.hy = d.tdy;
         }
       }
       return;
@@ -1988,6 +2053,10 @@ export class FbEngine {
       if (b.z > (d.gk ? 2.2 : 0.9)) continue;
       const dist = hyp(b.x - d.x, b.y - d.y);
       if (dist >= r) continue;
+      // a ball just played past an opponent standing beside / behind it (pressing the passer) is gone: only one it
+      // is actually heading at can block it in that first moment (before, a pass with a defender at your side was
+      // "taken" on the very frame it left the boot: it looked like the pass went straight to him)
+      if (!d.gk && b.lastTeam >= 0 && d.team !== b.lastTeam && this.time - b.kickAt < TUNE.cutReact && (d.x - b.x) * b.vx + (d.y - b.y) * b.vy <= 0) continue;
       if (!d.gk && b.lastTeam >= 0 && d.team !== b.lastTeam && dist > TUNE.duckR + BALL_R) {
         // an opponent the ball goes past (not into his body): just after the kick he has no time to react; a
         // quick ball beside him gets cut out only sometimes (decided once per kick)
@@ -2136,6 +2205,8 @@ export class FbEngine {
     if (d.celebrate) return FbAction.Celebrate;
     if (d.mope) return FbAction.Idle;
     if (d.trick > 0) return FbAction.Skill;
+    if (d.tackle > 0) return FbAction.Tackle;
+    if (d.stagger > 0) return FbAction.Stagger;
     if (d.trap > 0) return FbAction.Trap;
     if (d.kickT > 0) return FbAction.Kick;
     const sp = hyp(d.vx, d.vy);

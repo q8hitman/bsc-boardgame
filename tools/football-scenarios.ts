@@ -532,5 +532,90 @@ function outcome(e: FbEngine, secs = 3.5) {
   ok(36, Math.abs(ran - 1) < 0.05 && e.halfOver && Math.abs(e.clock - e.halfSeconds) < 3.1, `match timer: ${ran.toFixed(2)} s of clock per second of play; the half ends at ${e.clock.toFixed(1)} s (of ${e.halfSeconds})`);
 }
 
+
+// ---- round 4: the "moving passes the ball to the opponent" report, pass pickup, standing tackles
+{
+  // 37: a person dribbling (turns, reverses, sprints) with no opponent within tackle range never loses the ball
+  let losses = 0;
+  let secs = 0;
+  for (let seed = 1; seed <= 6; seed++) {
+    const e = world(seed);
+    for (const d of e.ducks) if (d.slot !== 1) freeze(e, d.slot, d.x, d.y);
+    const me = e.ducks[1];
+    Object.assign(me, { x: 0, y: 0 });
+    give(e, 1);
+    let rs = seed * 77;
+    const rnd = () => ((rs = (rs * 16807) % 2147483647) / 2147483647);
+    let ang = 0;
+    for (let i = 0; i < 30 * 15; i++) {
+      if (i % 10 === 0) ang += rnd() < 0.3 ? Math.PI : (rnd() - 0.5) * 3;
+      if (Math.hypot(me.x, me.y) > 9) ang = Math.atan2(-me.y, -me.x);
+      e.input("me", { x: Math.cos(ang), y: Math.sin(ang), a: false, b: false, s: rnd() < 0.5 });
+      e.step();
+      secs += DT;
+      if (e.ball.owner !== 1) {
+        losses++;
+        give(e, 1);
+      }
+    }
+  }
+  ok(37, losses === 0, `moving never gives the ball away: ${losses} losses in ${secs.toFixed(0)} s of turning / reversing / sprinting with nobody near`);
+}
+{
+  // 38: a defender pressing at the passer's side (not in the line) does not get the ball as it leaves the boot
+  let stolen = 0;
+  for (let k = 0; k < 8; k++) {
+    const e = world(30 + k);
+    for (const d of e.ducks) if (d.slot !== 1) freeze(e, d.slot, d.x, d.y);
+    Object.assign(e.ducks[1], { x: 0, y: 0, hx: 1, hy: 0 });
+    // a team-mate ahead, a defender tight at the side / behind the ball
+    freeze(e, 2, 12, (k % 3) - 1);
+    const side = k % 2 ? 1 : -1;
+    freeze(e, 6, TUNE.dribbleDist - 0.15 * (k % 4), side * (0.3 + 0.03 * k));
+    give(e, 1);
+    passInput(e, 1, 0);
+    for (let i = 0; i < 4; i++) e.step();
+    if (e.ball.owner === 6) stolen++;
+  }
+  ok(38, stolen === 0, `a pass with a defender at your side leaves the boot: ${stolen}/8 taken by him on the kick`);
+}
+{
+  // 39 + 40: a computer defender's tackle is always seen (lean in first); a missed one leaves him off balance
+  let lostUnseen = 0;
+  let losses = 0;
+  let missesStagger = 0;
+  let misses = 0;
+  for (let seed = 1; seed <= 12; seed++) {
+    const e = world(50 + seed);
+    for (const d of e.ducks) if (d.slot !== 1 && d.slot !== 6) freeze(e, d.slot, d.x, d.y);
+    Object.assign(e.ducks[1], { x: 0, y: 0, hx: 1, hy: 0 });
+    const def = e.ducks[6];
+    Object.assign(def, { x: 3, y: (seed % 3) * 0.4 - 0.4, think: 0, skill: 0.8 });
+    give(e, 1);
+    let leanT = 0;
+    let wasTackling = false;
+    for (let i = 0; i < 30 * 4; i++) {
+      // the carrier jinks away now and then (a person seeing the lean-in)
+      const jink = seed % 2 === 0 && def.tackle > TUNE.tackleHit;
+      e.input("me", { x: jink ? -0.3 : 1, y: jink ? 1 : 0, a: false, b: false });
+      e.step();
+      const act = e.action(def);
+      if (act === FbAction.Tackle) leanT += DT;
+      if (wasTackling && def.tackle <= 0 && e.ball.owner === 1) {
+        misses++;
+        if (e.action(def) === FbAction.Stagger) missesStagger++;
+      }
+      wasTackling = def.tackle > 0;
+      if (e.ball.owner !== 1) {
+        losses++;
+        if (leanT < TUNE.tackleWind - 0.01) lostUnseen++;
+        break;
+      }
+    }
+  }
+  ok(39, losses > 0 && lostUnseen === 0, `tackles are seen coming: ${losses} balls won, ${lostUnseen} without the defender leaning in first`);
+  ok(40, misses === 0 || missesStagger === misses, `a missed tackle leaves the defender off balance: ${missesStagger}/${misses}`);
+}
+
 console.log(fails ? `FAIL (${fails} of ${count})` : `PASS (${count})`);
 process.exit(fails ? 1 : 0);

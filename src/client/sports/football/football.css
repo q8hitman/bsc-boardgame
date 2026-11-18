@@ -108,7 +108,7 @@
 
 /* ---------- controls */
 .fb-ctrl { position: absolute; inset: 0; pointer-events: none; z-index: 3; --bs: clamp(62px, 17cqmin, 96px); }
-.fb-ctrl .joyzone { position: absolute; left: 0; top: 18%; bottom: 0; width: 50%; pointer-events: auto; touch-action: none; }
+.fb-ctrl .joyzone { position: absolute; left: 0; top: max(18%, calc(env(safe-area-inset-top) + 104px)); bottom: 0; width: 50%; pointer-events: auto; touch-action: none; }
 .fb-ctrl .joyhint {
   position: absolute; left: 7%; bottom: 14%; padding: .3em .7em; border: 3px dashed rgba(255, 255, 255, .45); border-radius: 50%; width: 7.2em; height: 7.2em;
   display: grid; place-items: center; text-align: center; font-weight: 800; font-size: 13px; color: rgba(255, 255, 255, .8); text-shadow: 2px 2px 0 var(--ink);
@@ -265,3 +265,14 @@
 .fb-me .stam u { position: absolute; inset: 0 auto 0 0; background: #3ddc5a; }
 .fb-me .stam.low u { background: #ff7a2a; }
 .fb-me .stam.out u { background: #e8452c; animation: fbBlink .3s steps(2) infinite; }
+
+/* solo play: pause */
+.fb-pause { display: none; position: absolute; right: max(8px, env(safe-area-inset-right)); top: calc(env(safe-area-inset-top) + 8px); width: 32px; height: 32px; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .5); color: #fff; font-weight: 800; font-size: 14px; line-height: 1; letter-spacing: -2px; pointer-events: auto; cursor: pointer; z-index: 6; touch-action: none; }
+.fb-ctrl.pausable .fb-pause, .fb-ctrl.paused .fb-pause { display: grid; place-items: center; }
+.fb-paused { display: none; position: absolute; inset: 0; background: rgba(12, 16, 36, .62); pointer-events: auto; z-index: 7; place-items: center; touch-action: none; }
+.fb-ctrl.paused .fb-paused { display: grid; }
+.fb-paused > div { display: flex; flex-direction: column; align-items: center; gap: 12px; color: #fff; font-family: var(--fb-font, inherit); text-shadow: 3px 3px 0 rgba(0, 0, 0, .35); }
+.fb-paused b { font-size: 34px; }
+.fb-paused small { opacity: .7; font-size: 13px; }
+.fb-resume { border: 0; border-radius: 16px; padding: 12px 28px; background: #1fb85a; color: #fff; font-family: inherit; font-weight: 800; font-size: 24px; line-height: 1; box-shadow: 0 5px 0 #127a3a; cursor: pointer; touch-action: none; }
+.fb-ctrl.desk .fb-pause, .fb-ctrl.desk .fb-paused { pointer-events: auto; }

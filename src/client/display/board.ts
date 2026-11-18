@@ -14,7 +14,7 @@ const SLOTS = [
   [0, 0], [-26, -9], [26, -9], [0, 13], [-26, 13], [26, 13], [-48, 2], [48, 2],
 ];
 
-class BoardScene extends Phaser.Scene {
+export class BoardScene extends Phaser.Scene {
   board!: Board;
   scale2 = 1;
   ducks = new Map<string, { c: Phaser.GameObjects.Container; sprite: Phaser.GameObjects.Image; shadow: Phaser.GameObjects.Ellipse; ring: Phaser.GameObjects.Ellipse; hover: Phaser.Tweens.Tween | null; node: number }>();

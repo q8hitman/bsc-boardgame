@@ -132,6 +132,10 @@ export const FbAction = {
   Trap: 9,
   /** a dribbling skill move (feint / step-over / roulette) that beats a tackle */
   Skill: 10,
+  /** a standing tackle: leaning in, then the boot reaching for the ball */
+  Tackle: 11,
+  /** off balance: a missed tackle, beaten by a skill move */
+  Stagger: 12,
 } as const;
 
 /** One phone's controls, sent over "fb:input" whenever they change (and at least every 250 ms while held).
@@ -149,4 +153,7 @@ export interface FbInput {
   s?: boolean;
   /** skill move, pressed: with the ball = a feint / step-over in the joystick direction; without = a quick dash */
   k?: boolean;
+  /** pause (held as a state: true while the player wants the match paused). Only honoured when this person is the
+   *  only one in the match (solo against the computer): the whole match stops until it is false again */
+  p?: boolean;
 }

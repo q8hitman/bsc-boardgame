@@ -125,6 +125,10 @@ export class FootballGame implements GameRunner {
     this.acc = 0;
     this.loop = setInterval(() => {
       const now = performance.now();
+      if (this.paused) {
+        this.last = now;
+        return;
+      }
       this.acc = Math.min(this.acc + now - this.last, 5 * TICK_MS);
       this.last = now;
       while (this.acc >= TICK_MS && this.loop) {
@@ -134,8 +138,25 @@ export class FootballGame implements GameRunner {
     }, 8);
   }
 
+  /** only the one person in a match against the computer can pause it, and only in open play */
+  private setPause(pid: string, on: boolean) {
+    if (on === this.paused || !this.eng) return;
+    const people = this.s.players.filter((x) => !x.isBot);
+    if (on && (people.length !== 1 || people[0].id !== pid || this.eng.stage !== "play")) return;
+    this.paused = on;
+    if (!on) {
+      // straight back into it: no catching up on the paused time
+      this.last = performance.now();
+      this.acc = 0;
+    }
+    // the clocks on every screen stop / start with it
+    this.syncClock();
+    this.emit();
+  }
+
   /** stop the loop and every timer, and drop the match (late inputs after a restart do nothing) */
   stop() {
+    this.paused = false;
     this.over = true;
     this.eng = null;
     this.stopTimers();
@@ -169,8 +190,12 @@ export class FootballGame implements GameRunner {
     this.eng?.setActive(pid, false);
   }
   shoot(_pid: string, _shot: PoolShot) {}
+  /** solo play paused by the person (P / Esc / the pause button): no ticks, no clock */
+  paused = false;
   input(pid: string, input: FbInput) {
     if (this.over || !this.eng) return;
+    this.setPause(pid, !!input.p);
+    if (this.paused) return;
     this.lastInput.set(pid, { at: Date.now(), held: input.a || input.b || !!input.s || !!input.k || input.x !== 0 || input.y !== 0 });
     this.eng.input(pid, input);
   }
@@ -290,7 +315,7 @@ export class FootballGame implements GameRunner {
     const f = this.f;
     f.clock = Math.round(Math.min(eng.clock, f.halfSeconds) * 100) / 100;
     f.clockAt = Date.now();
-    f.running = eng.stage === "play" && !this.over;
+    f.running = eng.stage === "play" && !this.over && !this.paused;
     // the pad's timer: when this half ends if the clock keeps running (no timer while it is stopped)
     if (this.s.phase === "sport") this.s.phaseEndsAt = f.running ? Date.now() + ((f.halfSeconds - f.clock) * 1000) / this.speed : null;
   }

@@ -1143,6 +1143,21 @@ export class FootballScene extends Phaser.Scene {
           }
           break;
         }
+        case FbAction.Tackle: {
+          // a standing tackle: weight back for a beat (you can see it coming), then the boot stabs in at the ball
+          mf = since < TUNE.tackleWind ? M_WINDUP : M_SLIDEIN;
+          if (since >= TUNE.tackleWind && time - d.dustAt > 60) {
+            d.dustAt = time;
+            this.dust.explode(2, X + face * 14, Y);
+          }
+          break;
+        }
+        case FbAction.Stagger: {
+          // missed / beaten: rocked back off balance, arms out
+          mf = M_STAGGER;
+          X -= Math.round(face * Math.min(1, since * 6) * 3);
+          break;
+        }
         case FbAction.Fall: {
           // taken out: rocked back, down on the grass, then up on one knee
           mf = since < 0.12 ? M_STAGGER : since < 0.38 ? M_DOWN : M_GETUP;

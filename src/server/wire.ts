@@ -101,7 +101,7 @@ export function wireSocket(io: GameIO, sock: GameSocket, rooms: Map<string, Room
   sock.on("fb:input", (inp) => {
     if (!me() || !inp || typeof inp !== "object") return;
     const n = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(-1, Math.min(1, Number(v))) : 0);
-    room()?.fbInput(me()!, { x: n(inp.x), y: n(inp.y), a: !!inp.a, b: !!inp.b, s: !!inp.s, k: !!inp.k });
+    room()?.fbInput(me()!, { x: n(inp.x), y: n(inp.y), a: !!inp.a, b: !!inp.b, s: !!inp.s, k: !!inp.k, p: !!inp.p });
   });
   sock.on("player:pickChar", (id) => me() && room()?.pickChar(me()!, String(id)));
   sock.on("player:pickTeam", (t) => me() && room()?.pickTeam(me()!, Number(t) === 1 ? 1 : 0));

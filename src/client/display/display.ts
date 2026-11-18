@@ -13,7 +13,7 @@ import { placeholderView } from "../sports/placeholder";
 import type { GameState, Player } from "../../shared/types";
 import { ar, Clock, connect, esc, icon, isLocal, joinUrl, tokenImg } from "../net";
 import { initAudio, sfx } from "../sfx";
-import { BoardView, H, W } from "./board";
+import { BoardView, H, W, type BoardScene } from "./board";
 import { CardTable } from "./table";
 
 const duckImg = (p: Player | { duck: number }) => `assets/tokens/token${p.duck}.png`;
@@ -77,14 +77,18 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
   addEventListener("pointerdown", () => initAudio());
 
   await document.fonts.load("800 40px 'Baloo Bhaijaan 2'").catch(() => {});
-  let view = new BoardView($("game"), BOARDS.island, { fluid: phone });
-  await view.ready;
-  let board = view.scene;
-  let boardId = "island";
+  // a phone builds the board only when a board game is actually played: a sport or the card game never shows it,
+  // and building it anyway (a second Phaser game, the island picture, every token) froze phones for seconds at
+  // the start of a match. Until then `board` is a stand-in that ignores every call.
+  const noBoard = new Proxy({}, { get: () => () => undefined }) as unknown as BoardScene;
+  let view: BoardView | null = phone ? null : new BoardView($("game"), BOARDS.island, { fluid: phone });
+  if (view) await view.ready;
+  let board: BoardScene = view ? view.scene : noBoard;
+  let boardId = view ? "island" : "";
   let switching: Promise<void> | null = null;
   /** The host picked another board in the lobby: rebuild the Phaser scene for it. */
   async function useBoard(id: string) {
-    view.game?.destroy(true);
+    view?.game?.destroy(true);
     $("game").innerHTML = "";
     view = new BoardView($("game"), BOARDS[id] ?? BOARDS.island, { fluid: phone });
     await view.ready;
@@ -125,7 +129,7 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
       $("game").classList.toggle("hidden", isCards(s) || isSport(s));
       $("table").classList.toggle("hidden", !isCards(s));
       $("sport").classList.toggle("hidden", !isSport(s));
-      view.fit();
+      view?.fit();
       table.fit();
     }
     // reset one-shot screens when a new game starts
@@ -135,6 +139,14 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
     }
     clock.update(s);
     $("connecting").classList.add("hidden");
+    // a hidden board does not draw: during a sport or the card game its loop sleeps (two Phaser games running at
+    // once halved the frame rate on phones)
+    const hide = isCards(s) || isSport(s);
+    const loop = view?.game?.loop;
+    if (loop?.started) {
+      if (hide && loop.running) loop.sleep();
+      else if (!hide && !loop.running) loop.wake();
+    }
     // the card game has no map: keep whatever board scene is loaded behind it
     const want = BOARDS[s.boardId] ? s.boardId : boardId;
     if (want !== boardId || switching) {

@@ -69,6 +69,9 @@ export class FootballControls {
   /** pad buttons held at the last poll (a rebind takes the first newly pressed one) */
   private padPrev = new Set<number>();
   private padName = "";
+  /** solo play: the match can be paused (P / Esc / the pause button); while paused nothing else is sent */
+  private paused = false;
+  private canPause = false;
 
   constructor(root: HTMLElement, private big: boolean) {
     this.touch = isTouch();
@@ -83,7 +86,9 @@ export class FootballControls {
         <button class="fbb s" type="button"><span class="k">»</span><b>ركض</b></button>
         <button class="fbb k" type="button"><span class="k">★</span><b>حركة</b></button>
       </div>
-      <div class="fb-keys" dir="rtl"></div>`;
+      <div class="fb-keys" dir="rtl"></div>
+      <button class="fb-pause" type="button" title="إيقاف مؤقت (P)">❚❚</button>
+      <div class="fb-paused" dir="rtl"><div><b>موقّفة</b><button class="fb-resume" type="button">▶ كمّل</button><small>P أو Esc</small></div></div>`;
     root.appendChild(this.el);
     this.zone = this.el.querySelector(".joyzone")!;
     this.base = this.el.querySelector(".joy")!;
@@ -97,6 +102,14 @@ export class FootballControls {
     this.ring = this.el.querySelector(".fbb.b circle")!;
     this.legend = this.el.querySelector(".fb-keys")!;
     this.renderLegend();
+    for (const sel of [".fb-pause", ".fb-resume"]) {
+      const b = this.el.querySelector<HTMLButtonElement>(sel)!;
+      b.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.togglePause();
+      });
+    }
     // click an action to give it a new key / pad button
     this.legend.addEventListener("click", (e) => {
       const t = e.target as HTMLElement;
@@ -120,7 +133,11 @@ export class FootballControls {
       const st = this.btn[id];
       const down = (e: PointerEvent) => {
         e.preventDefault();
-        el.setPointerCapture?.(e.pointerId);
+        try {
+          el.setPointerCapture?.(e.pointerId);
+        } catch {
+          /* already gone */
+        }
         st.touch = true;
         el.classList.add("on");
         buzz(id === "s" ? 8 : 14);
@@ -248,6 +265,7 @@ export class FootballControls {
   }
 
   private current(): FbInput {
+    if (this.paused) return { x: 0, y: 0, a: false, b: false, s: false, k: false, p: true };
     let x = this.joy.x;
     let y = this.joy.y;
     if (this.pad.x || this.pad.y) {
@@ -266,7 +284,36 @@ export class FootballControls {
       b: this.isDown("b") || this.latch.b,
       s: this.isDown("s"),
       k: this.isDown("k") || this.latch.k,
+      p: false,
     };
+  }
+
+  /** pausing is offered only when this person is alone against the computer, in open play */
+  setPausable(on: boolean) {
+    if (on === this.canPause) return;
+    this.canPause = on;
+    this.el.classList.toggle("pausable", on);
+    // (a goal, the whistle: the match moved on, the pause is over)
+    if (!on && this.paused) this.setPausedState(false);
+  }
+  private togglePause() {
+    if (!this.cb || (!this.paused && !this.canPause)) return;
+    this.setPausedState(!this.paused);
+  }
+  private setPausedState(on: boolean) {
+    this.paused = on;
+    // nothing stays held across a pause (a key let go while paused would stick)
+    this.keys.clear();
+    this.bkeys.clear();
+    for (const id of BTNS) {
+      this.btn[id] = { touch: false, key: false, pad: false };
+      this.latch[id] = false;
+      this.els[id].classList.remove("on");
+    }
+    this.joy = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
+    this.base.classList.add("hidden");
+    this.el.classList.toggle("paused", on);
+    this.changed();
   }
 
   /** what the player is pressing right now (for predicting their own duck), null when not playing */
@@ -320,12 +367,12 @@ export class FootballControls {
     const cur = this.current();
     const now = performance.now();
     const s = this.sent;
-    const same = cur.x === s.x && cur.y === s.y && cur.a === s.a && cur.b === s.b && cur.s === s.s && cur.k === s.k;
+    const same = cur.x === s.x && cur.y === s.y && cur.a === s.a && cur.b === s.b && cur.s === s.s && cur.k === s.k && !!cur.p === !!s.p;
     const anyHeld = cur.x !== 0 || cur.y !== 0 || cur.a || cur.b || !!cur.s || !!cur.k;
     const due = same ? (anyHeld ? RESEND : -1) : 0;
     if (due < 0) return;
     // button edges go out at once; only stick movement is rate-limited
-    const edge = cur.a !== s.a || cur.b !== s.b || cur.s !== s.s || cur.k !== s.k;
+    const edge = cur.a !== s.a || cur.b !== s.b || cur.s !== s.s || cur.k !== s.k || !!cur.p !== !!s.p;
     const wait = edge ? 0 : Math.max(due - (now - this.lastSend), MIN_GAP - (now - this.lastSend), 0);
     if (wait > 0) {
       this.timer = window.setTimeout(this.flush, wait);
@@ -352,11 +399,15 @@ export class FootballControls {
 
   /* ---------------- joystick */
   private joyDown = (e: PointerEvent) => {
-    if (this.joy.id >= 0) return;
+    if (this.joy.id >= 0 || this.paused) return;
     e.preventDefault();
     const [ox, oy] = this.local(e);
     this.joy = { id: e.pointerId, ox, oy, x: 0, y: 0 };
-    this.zone.setPointerCapture?.(e.pointerId);
+    try {
+      this.zone.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* the pointer is already gone (a very quick tap): nothing to capture */
+    }
     this.base.style.left = `${this.joy.ox}px`;
     this.base.style.top = `${this.joy.oy}px`;
     this.base.classList.remove("hidden");
@@ -420,6 +471,14 @@ export class FootballControls {
       if (!e.repeat) this.showLegend(!this.legendShown);
       return;
     }
+    if (c === "KeyP" || c === "Escape") {
+      if (!e.repeat && (this.paused || this.canPause)) {
+        e.preventDefault();
+        this.togglePause();
+      }
+      return;
+    }
+    if (this.paused) return;
     const act = this.bind.keys[c];
     const move = isDir(act);
     const b = isBtn(act) ? act : undefined;
@@ -498,7 +557,11 @@ export class FootballControls {
         this.padPrev = now;
         return;
       }
+      // Start: pause / carry on
+      const startNew = now.has(9) && !this.padPrev.has(9);
       this.padPrev = now;
+      if (startNew) this.togglePause();
+      if (this.paused) return;
       const P = (a: Act) => Object.keys(this.bind.pad).some((k) => this.bind.pad[+k] === a && B(+k));
       let x = gp.axes[0] ?? 0;
       let y = gp.axes[1] ?? 0;

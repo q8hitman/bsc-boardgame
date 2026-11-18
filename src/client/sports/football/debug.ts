@@ -15,6 +15,12 @@ export class FootballDebug {
   private g: Phaser.GameObjects.Graphics;
   private t: Phaser.GameObjects.Text;
   private on = true;
+  /** frame time, smoothed, and the worst frame in the last second */
+  private ft = 16.7;
+  private worst = 0;
+  private worstShown = 0;
+  private worstAt = 0;
+  private lastAt = 0;
   private key = (e: KeyboardEvent) => {
     if (e.code === "F2") {
       e.preventDefault();
@@ -37,6 +43,18 @@ export class FootballDebug {
   }
 
   draw(stick: { x: number; y: number } | null) {
+    const now = performance.now();
+    if (this.lastAt) {
+      const f = now - this.lastAt;
+      this.ft += (f - this.ft) * 0.1;
+      this.worst = Math.max(this.worst, f);
+      if (now - this.worstAt > 1000) {
+        this.worstShown = this.worst;
+        this.worst = 0;
+        this.worstAt = now;
+      }
+    }
+    this.lastAt = now;
     if (!this.on) return;
     const g = this.g;
     g.clear();
@@ -95,9 +113,16 @@ export class FootballDebug {
     g.lineStyle(2, 0xff40ff, 1).lineBetween(BX, BY, ...P(b.x + b.vx * 0.25, b.y + b.vy * 0.25, b.z));
     g.lineStyle(1, 0xff40ff, 0.6).lineBetween(BX, BY, ...P(b.x, b.y, 0));
     const sp = Math.hypot(b.vx, b.vy);
+    const ACT = ["idle", "run", "kick", "slide", "dive", "celebrate", "fall", "kneel", "sprint", "trap", "skill", "tackle", "stagger"];
+    const acts = mine.map((s) => {
+      const d = e.ducks[s];
+      return `${s}:${ACT[e.action(d)] ?? e.action(d)}${d.tackle > 0 ? ` t${d.tackle.toFixed(2)}` : ""}`;
+    });
     this.t.setText(
       [
+        `fps ${(1000 / this.ft).toFixed(0)}  frame ${this.ft.toFixed(1)} ms  worst ${this.worstShown.toFixed(0)} ms`,
         `stage ${e.stage}  clock ${e.clock.toFixed(1)}  score ${e.score.join("-")}`,
+        `controlled ${acts.join("  ")}`,
         `ball  owner ${b.owner}${b.held ? " (hands)" : ""}  passTo ${b.passTo}  last ${b.last}`,
         `      pos ${b.x.toFixed(1)},${b.y.toFixed(1)} z ${b.z.toFixed(2)}  v ${sp.toFixed(1)} m/s dir ${((Math.atan2(b.vy, b.vx) * 180) / Math.PI).toFixed(0)}°`,
         `ctrl  ${JSON.stringify(ctrl)}`,
