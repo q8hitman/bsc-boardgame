@@ -74,6 +74,8 @@ export const TUNE = {
   passAuto: 0.55,
   /** the ball at the feet follows the boot on a spring (1/s): it swings round on a turn instead of being nailed on */
   dribbleSpring: 16,
+  /** the ball more than this far from where the boot wants it (m) is no longer his */
+  dribbleLose: 1.4,
   /** a computer defender against a person: stands off this far (jockeying), and now and then lunges in */
   jockeyR: 1.5,
   lungeTime: 0.4,
@@ -1477,26 +1479,22 @@ export class FbEngine {
     this.glue();
   }
   /** the owned ball sits at the owner's feet (in the keeper's hands) */
-  private glue(dt = 0) {
+  /** where the ball sits relative to its owner's boot: tight at a jog (and in a skill move), knocked on ahead at a
+   *  sprint, touch after touch; in the keeper's hands */
+  private footSpot(o: Duck): [number, number] {
     const b = this.ball;
-    const o = this.ducks[b.owner];
-    // tight at a jog (and in a skill move); knocked on ahead at a sprint, touch after touch
     const dd = b.held ? 0.3 : o.trick > 0 ? 0.35 : o.sprinting
       ? TUNE.sprintTouchMin + (TUNE.sprintTouchMax - TUNE.sprintTouchMin) * (0.5 - 0.5 * Math.cos(o.touch * Math.PI * 4))
       : TUNE.dribbleDist;
-    const tx = o.x + o.hx * dd;
-    const ty = o.y + o.hy * dd;
-    if (dt > 0 && !b.held && o.trick <= 0 && hyp(b.x - tx, b.y - ty) < 1.6) {
-      // carried along with him, eased towards the boot: on a sharp turn it swings round his feet
-      const k = 1 - Math.exp(-dt * TUNE.dribbleSpring);
-      b.x += o.vx * dt + (tx - b.x - o.vx * dt) * k;
-      b.y += o.vy * dt + (ty - b.y - o.vy * dt) * k;
-    } else {
-      b.x = tx;
-      b.y = ty;
-    }
-    b.x = clamp(b.x, -HALF_L + BALL_R + 0.05, HALF_L - BALL_R - 0.05);
-    b.y = clamp(b.y, -HALF_W + BALL_R, HALF_W - BALL_R);
+    return [o.x + o.hx * dd, o.y + o.hy * dd];
+  }
+  /** put the owned ball exactly at the boot (taking it, the keeper's hands, skill moves, set pieces) */
+  private glue() {
+    const b = this.ball;
+    const o = this.ducks[b.owner];
+    const [tx, ty] = this.footSpot(o);
+    b.x = clamp(tx, -HALF_L + BALL_R + 0.05, HALF_L - BALL_R - 0.05);
+    b.y = clamp(ty, -HALF_W + BALL_R, HALF_W - BALL_R);
     b.z = b.held ? 0.7 : 0;
     b.vx = o.vx;
     b.vy = o.vy;
@@ -1506,7 +1504,28 @@ export class FbEngine {
   // ------------------------------------------------------------------ ball
   private moveBall(dt: number) {
     const b = this.ball;
-    if (b.owner >= 0) return this.glue(dt);
+    // the ball is always a simulated body: a dribbler steers its velocity towards his boot (it keeps its own
+    // position and collides with the boards and posts like a loose ball); only hands and set pieces hold it
+    let dribble: Duck | null = null;
+    if (b.owner >= 0) {
+      const o = this.ducks[b.owner];
+      if (b.held || o.trick > 0 || this.stage !== "play") return this.glue();
+      const [tx, ty] = this.footSpot(o);
+      // (handed over by a set piece far from his boot: placed there, not flung across)
+      if (hyp(b.x - tx, b.y - ty) > TUNE.dribbleLose) return this.glue();
+      dribble = o;
+      let cx = (tx - b.x) * TUNE.dribbleSpring;
+      let cy = (ty - b.y) * TUNE.dribbleSpring;
+      const cm = hyp(cx, cy);
+      if (cm > 9) {
+        cx *= 9 / cm;
+        cy *= 9 / cm;
+      }
+      b.vx = o.vx + cx;
+      b.vy = o.vy + cy;
+      b.z = 0;
+      b.vz = 0;
+    } else {
     // vertical
     if (b.spinT > 0) {
       b.vy += b.spin * dt;
@@ -1536,6 +1555,7 @@ export class FbEngine {
         b.vx *= ns / sp;
         b.vy *= ns / sp;
       }
+    }
     }
     if (b.inNet && b.z <= 0 && b.vz <= 0) {
       // the grass inside the goal: a slow ball trickles in and stops just over the line
@@ -1638,6 +1658,18 @@ export class FbEngine {
         b.z = PITCH.goalHeight - BALL_R;
         b.vz = -Math.abs(b.vz) * 0.2;
       }
+    }
+    if (dribble) {
+      // it got away from him (stuck on a board while he ran on, a hard turn into a post): loose
+      const [tx, ty] = this.footSpot(dribble);
+      if (b.owner >= 0 && hyp(b.x - tx, b.y - ty) > TUNE.dribbleLose) {
+        b.owner = -1;
+        b.last = dribble.slot;
+        b.lastTeam = dribble.team;
+        b.passTo = -1;
+        dribble.noPick = 0.15;
+      }
+      return;
     }
     this.keeperContact();
   }

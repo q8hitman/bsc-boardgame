@@ -43,7 +43,7 @@ function checkWorld(e: FbEngine, bad: string[]) {
   if (b.owner < -1 || b.owner >= e.ducks.length || !Number.isInteger(b.owner)) bad.push(`bad owner ${b.owner}`);
   if (b.owner >= 0) {
     const o = e.ducks[b.owner];
-    if (Math.hypot(o.x - b.x, o.y - b.y) > 1.2) bad.push(`ball ${Math.hypot(o.x - b.x, o.y - b.y).toFixed(2)} m from its owner`);
+    if (Math.hypot(o.x - b.x, o.y - b.y) > TUNE.sprintTouchMax + TUNE.dribbleLose) bad.push(`ball ${Math.hypot(o.x - b.x, o.y - b.y).toFixed(2)} m from its owner`);
     // "owned by two": no other duck may be within dribbling distance claiming it (owner is a single slot by design)
   }
 }
