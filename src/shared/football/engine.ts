@@ -141,6 +141,8 @@ export const TUNE = {
   switchHold: 0.9,
   /** a computer defender starts reacting to a new pass after about this long (s, less for skilled ones) */
   aiReadPass: 0.28,
+  /** a person nearest the carrier but further than this (m) from him: a computer team-mate presses meanwhile */
+  helpPress: 3,
 };
 
 export type EngStage = "idle" | "kickoff" | "play" | "goal" | "pen";
@@ -215,6 +217,10 @@ export interface Duck {
   lunge: number;
   /** a committed standing tackle: time left (lean in, then the contact window), its direction, the wait before the
    *  next one, and the stumble after a miss / being beaten (shown as a stagger) */
+  /** coming short for the carrier: the spot, re-picked at shortT */
+  shortX: number;
+  shortY: number;
+  shortT: number;
   tackle: number;
   tdx: number;
   tdy: number;
@@ -298,6 +304,8 @@ export interface TeamCtx {
   chaser: number;
   presser: number;
   cover: number;
+  /** a person's team defending: the computer duck in `cover` doubles up on the carrier with the person */
+  double: boolean;
 }
 
 export function mulberry32(seed: number) {
@@ -387,8 +395,8 @@ export class FbEngine {
   /** slot -> person controlling it this tick */
   ctrlBy: (Person | null)[] = [];
   ctx: [TeamCtx, TeamCtx] = [
-    { has: false, chaser: -1, presser: -1, cover: -1 },
-    { has: false, chaser: -1, presser: -1, cover: -1 },
+    { has: false, chaser: -1, presser: -1, cover: -1, double: false },
+    { has: false, chaser: -1, presser: -1, cover: -1, double: false },
   ];
   /** predicted loose-ball positions every 0.1 s for 2.5 s */
   path: { x: number; y: number; z: number }[] = [];
@@ -406,7 +414,7 @@ export class FbEngine {
         x: 0, y: 0, vx: 0, vy: 0, hx: 1, hy: 0, face: 1, tx: 0, ty: 0, run: 0, think: (p.slot % 5) * 0.03, spotT: 0, spotX: 0, spotY: 0,
         kickT: 0, slide: 0, sdx: 0, sdy: 0, slideCd: 0, fall: 0, kneel: 0, lock: 0, noPick: 0, hasT: 0, dive: 0, dvx: 0, dvy: 0,
         stamina: 1, tired: false, sprinting: false, wantSprint: false, trick: 0, tkx: 0, tky: 0, trickCd: 0, dash: 0, dkx: 0, dky: 0, dashCd: 0, trap: 0, touch: 0,
-        saveShot: -1, saveOk: false, charge: -1, celebrate: false, mope: false, wantBy: -1, wantUntil: 0, lunge: 0, tackle: 0, tdx: 1, tdy: 0, tackleCd: 0, stagger: 0, cutKick: -1, cutOk: false,
+        saveShot: -1, saveOk: false, charge: -1, celebrate: false, mope: false, wantBy: -1, wantUntil: 0, lunge: 0, shortX: 0, shortY: 0, shortT: 0, tackle: 0, tdx: 1, tdy: 0, tackleCd: 0, stagger: 0, cutKick: -1, cutOk: false,
       };
     });
     this.ctrlBy = this.ducks.map(() => null);
@@ -676,6 +684,11 @@ export class FbEngine {
     const b = this.ball;
     return !!d && b.owner < 0 && b.z < 1.2 && hyp(d.x - b.x, d.y - b.y) < r;
   }
+  /** a person plays on this team (people's team-mates help more actively) */
+  teamHasPerson(t: FbTeam) {
+    for (const p of this.people.values()) if (p.team === t && p.active) return true;
+    return false;
+  }
   isHuman(d: Duck) {
     return !!this.ctrlBy[d.slot];
   }
@@ -735,22 +748,28 @@ export class FbEngine {
       const c = this.ctx[t];
       c.has = ownerTeam === t;
       c.chaser = c.presser = c.cover = -1;
+      c.double = false;
       const mine = this.ducks.filter((d) => d.team === t && !d.gk && d.fall <= 0);
       if (b.owner < 0) {
         if (b.passTo >= 0 && this.ducks[b.passTo].team === t && !this.ducks[b.passTo].gk) {
           c.chaser = b.passTo;
           continue;
         }
+        // the computer's chaser is its own fastest duck to the ball; a person's team-mates leave it to him only when
+        // he is clearly first there (before, they stood off whenever he was a little nearer, even if he was not
+        // going for it, and a person's team lost most loose balls)
         let best = -1;
         let bt = Infinity;
+        let ht = Infinity;
         for (const d of mine) {
-          const tt = this.reach(d).t * (this.isHuman(d) ? 0.8 : 1);
-          if (tt < bt) {
+          const tt = this.reach(d).t;
+          if (this.isHuman(d)) ht = Math.min(ht, tt);
+          else if (tt < bt) {
             bt = tt;
             best = d.slot;
           }
         }
-        c.chaser = best;
+        c.chaser = ht < bt - 0.6 ? -1 : best;
       } else if (ownerTeam !== t && !b.held) {
         const o = this.ducks[b.owner];
         // who can get in front of him: distance to where he will be, and a duck he has already passed counts less
@@ -761,10 +780,22 @@ export class FbEngine {
         const byDist = mine.sort((p, q) => cost(p) - cost(q));
         if (!byDist.length) continue;
         c.presser = byDist[0].slot;
-        // a person presses: the nearest computer duck covers; near our goal the computer doubles up anyway
         const danger = Math.abs(o.x - -this.dir(t) * HALF_L) < 20;
-        if (this.isHuman(byDist[0])) c.cover = byDist.find((d) => !this.isHuman(d))?.slot ?? -1;
-        else if (danger) c.cover = byDist.find((d, i) => i > 0 && !this.isHuman(d))?.slot ?? -1;
+        if (this.isHuman(byDist[0])) {
+          // a person nearest the carrier: if he is not on him yet, the nearest team-mate presses meanwhile; if he
+          // is, a team-mate comes in to double up (the computer's own defence does the same)
+          const ai = byDist.find((d) => !this.isHuman(d));
+          if (ai) {
+            if (hyp(byDist[0].x - o.x, byDist[0].y - o.y) > TUNE.helpPress) c.presser = ai.slot;
+            else c.cover = ai.slot;
+            c.double = true;
+          }
+        } else if (this.teamHasPerson(t)) {
+          // a person's team: the computer duck nearest the carrier goes at him (and tackles), and the next one helps
+          // when he is in our half; the person joins in where he likes
+          c.cover = byDist.find((d, i) => i > 0 && !this.isHuman(d) && (danger || Math.abs(o.x - -this.dir(t) * HALF_L) < HALF_L))?.slot ?? -1;
+          c.double = c.cover >= 0;
+        } else if (danger) c.cover = byDist.find((d, i) => i > 0 && !this.isHuman(d))?.slot ?? -1;
       }
     }
   }

@@ -617,5 +617,42 @@ function outcome(e: FbEngine, secs = 3.5) {
   ok(40, misses === 0 || missesStagger === misses, `a missed tackle leaves the defender off balance: ${missesStagger}/${misses}`);
 }
 
+
+{
+  // 41: a person's team-mates help: a computer carrier in our half with the person far away is pressed by a
+  // computer team-mate (not left to the person); with the person on him, a team-mate comes in to double up
+  let pressed = 0;
+  let doubled = 0;
+  for (let k = 0; k < 6; k++) {
+    const e = world(70 + k);
+    const o = e.ducks[7];
+    Object.assign(o, { x: -10, y: (k % 3) * 3 - 3, think: 0 });
+    // the person is the nearest (4 m, standing still), his team-mates 6-9 m away
+    Object.assign(e.ducks[1], { x: o.x + 4, y: o.y });
+    for (const d of e.ducks) if (d.team === 0 && !d.gk && d.slot !== 1) Object.assign(d, { x: o.x + 5 + d.slot, y: o.y + (d.slot % 2 ? 5 : -5), think: 0 });
+    for (const d of e.ducks) if (d.team === 1 && d.slot !== 7 && !d.gk) freeze(e, d.slot, 20, d.y);
+    give(e, 7);
+    freeze(e, 7, o.x, o.y);
+    let near = false;
+    for (let i = 0; i < 60 && !near; i++) {
+      e.input("me", NONE);
+      e.step();
+      near = e.ducks.some((d) => d.team === 0 && !d.gk && d.slot !== e.control().me && Math.hypot(d.x - o.x, d.y - o.y) < 1.6);
+    }
+    if (near) pressed++;
+    // now the person is right on him: is there a second (computer) duck close by too?
+    const me = e.ducks[e.control().me];
+    Object.assign(me, { x: o.x - 1.2, y: o.y, vx: 0, vy: 0 });
+    let two = false;
+    for (let i = 0; i < 60 && !two; i++) {
+      e.input("me", NONE);
+      e.step();
+      two = e.ducks.some((d) => d.team === 0 && !d.gk && d !== me && Math.hypot(d.x - o.x, d.y - o.y) < 1.4);
+    }
+    if (two) doubled++;
+  }
+  ok(41, pressed === 6 && doubled >= 5, `team-mates help a person defend: pressed by a computer team-mate ${pressed}/6, doubled up with the person ${doubled}/6`);
+}
+
 console.log(fails ? `FAIL (${fails} of ${count})` : `PASS (${count})`);
 process.exit(fails ? 1 : 0);

@@ -91,3 +91,20 @@ switching. Faster passes were tried (arrive 11 / 13 m/s) and made things worse i
 
 Not verified here: a real phone's frame rate (only desktop timings, which phones multiply by ~4–8), a physical
 gamepad, and the feel of the game in a person's hands.
+
+## 7. Round 5: team-mates that help (measured with a person-like bot on blue, computer on red)
+
+Gameplay watched in the browser (Pixel Cup Soccer, Super Arcade Football: a team keeps 2–3 players free around the
+ball, the nearest one pressing the carrier) and three review videos read through their transcripts
+(youtube-watcher skill): Pixel Cup Soccer's reviewer names slow turning, unresponsive buttons, a shared
+shoot / tackle button and team-mates "wandering"; Golazo's names erratic shooting and keepers too easy to round.
+
+| Problem | Root cause | Fix | Before → after |
+|---|---|---|---|
+| Team-mates leave loose balls to you | the person's time to the ball counted 20% faster, so they stood off whenever you were a bit nearer | they leave it only when you are clearly first (0.6 s) | going for loose balls 49% → 54% |
+| Team-mates don't defend with you | you were the "presser" whenever nearest; the computer only covered | a team-mate presses while you are not on the carrier, and doubles up (1 m) when you are | ball wins by your team-mates 5.3 → 6.9 per half; scenario 41 (old code 2/6, 3/6 → 6/6) |
+| Few passing options | defenders shadowed attackers at 1.6 m | zonal-ish marking (2.4 m, 60% towards the shape), both teams | passes arriving 58% → 61%, reaching the last third 17% → 23% |
+| No short pass offered | the third team-mate held his position | the nearest non-runner comes short (6–9 m), the others find a pocket 10–16 m away in a clear lane | ~2.4 free team-mates (no opponent within 2 m) whenever you have the ball; nobody free 2% |
+
+Computer against computer, a defender is within reach of the ball 8% of the time; the person's team now reaches
+that (its computer ducks 9%, plus the person 18%), so the engine no longer favours the computer's defence.

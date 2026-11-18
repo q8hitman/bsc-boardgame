@@ -6,6 +6,10 @@
 import type { Duck, FbEngine } from "./engine";
 import { PITCH, type FbTeam } from "./types";
 
+/** how tightly a defender marks the attacker nearest his spot: metres goal-side of him, and how much of the way
+ *  from his own position in the shape (0) to that marking spot (1) he goes */
+export const TUNE_MARK = { dist: 2.4, blend: 0.6 };
+
 const L = PITCH.length / 2;
 const W = PITCH.width / 2;
 const GW = PITCH.goalWidth / 2;
@@ -261,6 +265,43 @@ function support(e: FbEngine, d: Duck) {
       const runX = clamp(cfx + 6, -L + 8, L - 7);
       d.tx = s * runX;
       d.ty = side * 11;
+    } else {
+      // the rest get open for the carrier: the nearest comes short (6-9 m, square or a little behind), the others
+      // find a pocket 10-16 m away; always a clear lane from the ball, away from their markers and each other, so
+      // the carrier (a person above all) is not left with nobody to give it to
+      const rest = ahead.slice(2);
+      const near = rest.reduce<Duck | null>((a, m) => (!a || hyp(m.x - carrier.x, m.y - carrier.y) < hyp(a.x - carrier.x, a.y - carrier.y) ? m : a), null);
+      const short = near === d;
+      if (e.time >= d.shortT || hyp(d.shortX - carrier.x, d.shortY - carrier.y) > (short ? 11 : 19)) {
+        let bx = d.tx;
+        let by = d.ty;
+        let bs = -Infinity;
+        const radii = short ? [6.5, 8.5] : [10, 13, 16];
+        for (let k = 0; k < 12; k++) {
+          // from straight ahead (0) round to a little behind square on either side
+          const a = (k % 2 ? 1 : -1) * Math.PI * (short ? 0.3 + (Math.floor(k / 2) / 5) * 0.4 : (Math.floor(k / 2) / 5) * 0.62);
+          const fx = Math.cos(a) * s;
+          const fy = Math.sin(a);
+          for (const r of radii) {
+            const x = clamp(carrier.x + fx * r, -L + 3, L - 3);
+            const y = clamp(carrier.y + fy * r, -W + 1.5, W - 1.5);
+            let sc = Math.min(6, nearestOpp(e, d.team, x, y)) * 0.6 - hyp(x - d.x, y - d.y) * 0.1 + (x - carrier.x) * s * 0.04;
+            const risk = e.laneRisk(carrier, x, y);
+            sc -= risk < 1 ? 3 : risk < 1.8 ? 1.2 : 0;
+            for (const m of e.ducks) if (m.team === d.team && m !== d && !m.gk && hyp(m.x - x, m.y - y) < 5) sc -= 1.2;
+            if (sc > bs) {
+              bs = sc;
+              bx = x;
+              by = y;
+            }
+          }
+        }
+        d.shortX = bx;
+        d.shortY = by;
+        d.shortT = e.time + 0.5 + e.rng() * 0.3;
+      }
+      d.tx = d.shortX;
+      d.ty = d.shortY;
     }
   }
   const far = hyp(d.tx - d.x, d.ty - d.y);
@@ -299,8 +340,10 @@ function cover(e: FbEngine, d: Duck, o: Duck) {
   const gx = -s * L - o.x;
   const gy = -o.y;
   const gm = hyp(gx, gy) || 1;
-  // close to goal: tight (in the way of the shot), further out: a few metres off
-  const r = gm < 20 ? 2.2 : 5;
+  // close to goal: tight (in the way of the shot), further out: a few metres off; helping a person who is on the
+  // carrier: right in there with him (close enough to tackle), from the side the person is not on
+  const dbl = e.ctx[d.team].double;
+  const r = dbl ? 1.0 : gm < 20 ? 2.2 : 5;
   d.tx = o.x + o.vx * 0.2 + (gx / gm) * r;
   d.ty = o.y + o.vy * 0.2 + (gy / gm) * r;
   d.run = 1;
@@ -327,10 +370,12 @@ function defend(e: FbEngine, d: Duck) {
     const gx = goalX - mark.x;
     const gy = -mark.y;
     const gm = hyp(gx, gy) || 1;
-    const mx = mark.x + (gx / gm) * 1.6;
-    const my = mark.y + (gy / gm) * 1.6;
-    d.tx = mx * 0.7 + h.x * 0.3;
-    d.ty = my * 0.7 + h.y * 0.3;
+    // marking goal-side but not glued to him, held a little towards our shape (a zone more than a shadow): it
+    // leaves the attacking side passes to play, as the reference arcade games do, and still cuts out lazy ones
+    const mx = mark.x + (gx / gm) * TUNE_MARK.dist;
+    const my = mark.y + (gy / gm) * TUNE_MARK.dist;
+    d.tx = mx * TUNE_MARK.blend + h.x * (1 - TUNE_MARK.blend);
+    d.ty = my * TUNE_MARK.blend + h.y * (1 - TUNE_MARK.blend);
   } else {
     d.tx = h.x;
     d.ty = h.y;
