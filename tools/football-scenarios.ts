@@ -437,28 +437,54 @@ function outcome(e: FbEngine, secs = 3.5) {
   ok(30, o.owner === 7, `opponent interception: a ground pass straight through a defender is cut out (owner ${o.owner})`);
 }
 {
-  let saves = 0;
-  let goals = 0;
-  for (let seed = 1; seed <= 40; seed++) {
+  // the keeper: shots straight at him are saved, well placed corners beat him often enough (geometry, not dice)
+  const res = { mid: { n: 0, saved: 0 }, corner: { n: 0, goals: 0 } };
+  for (let seed = 1; seed <= 60; seed++) {
     const e = world(seed);
     freeze(e, 1, 16, (seed % 5) - 2);
     give(e, 1);
     e.ducks[5].think = 0;
-    e.shoot(e.ducks[1], 0.55 + (seed % 4) * 0.12, ((seed % 3) - 1) * 2.4, 1, 0, true);
+    const corner = seed % 2 === 0;
+    e.shoot(e.ducks[1], 0.55 + (seed % 4) * 0.12, corner ? (seed % 4 < 2 ? -2.9 : 2.9) : 0, 1, 0, true);
     const g0 = e.score[0];
-    for (let i = 0; i < 60; i++) {
+    let saved = false;
+    let goal = false;
+    for (let i = 0; i < 60 && !saved && !goal; i++) {
       e.step();
-      if (e.ball.owner === 5 || e.events.some(([k]) => k === FbEvent.Save)) {
-        saves++;
-        break;
+      if (e.ball.owner === 5 || e.events.some(([k]) => k === FbEvent.Save)) saved = true;
+      if (e.score[0] > g0) goal = true;
+      e.events.length = 0;
+    }
+    if (corner) {
+      if (saved || goal) {
+        res.corner.n++;
+        if (goal) res.corner.goals++;
       }
-      if (e.score[0] > g0) {
-        goals++;
-        break;
-      }
+    } else {
+      res.mid.n++;
+      if (saved) res.mid.saved++;
     }
   }
-  ok(31, saves > 6 && goals > 6, `goalkeeper: from 16 m he saves ${saves} and is beaten ${goals} times of 40 (neither a wall nor a sieve)`);
+  ok(31, res.mid.saved / res.mid.n >= 0.8 && res.corner.goals / res.corner.n >= 0.25, `goalkeeper: saves ${res.mid.saved}/${res.mid.n} shots at him, beaten by ${res.corner.goals}/${res.corner.n} corner shots on target`);
+}
+
+{
+  // a chip (shoot with sprint held) over a keeper caught off his line
+  let goals = 0;
+  for (let seed = 1; seed <= 10; seed++) {
+    const e = world(seed);
+    freeze(e, 1, 12, 0);
+    freeze(e, 5, HALF_L - 6, 0);
+    e.ducks[5].think = 0; // he reacts (backpedals, jumps)
+    give(e, 1);
+    e.input("me", { x: 1, y: 0, a: false, b: true, s: true });
+    steps(e, 6);
+    e.input("me", { x: 1, y: 0, a: false, b: false, s: true });
+    const g0 = e.score[0];
+    steps(e, 60, undefined, () => e.score[0] > g0);
+    if (e.score[0] > g0) goals++;
+  }
+  ok(31.5, goals >= 4, `chip shot: over a keeper 6 m off his line (he backpedals), ${goals}/10 go in`);
 }
 
 // ------------------------------------------------------------------------------------------------ match flow

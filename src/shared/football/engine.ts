@@ -1066,7 +1066,8 @@ export class FbEngine {
         const bend = Math.abs(jy) > 0.25 ? jy * 0.7 : 0;
         const aim = Math.abs(jy) > 0.25 ? clamp(jy * 3.2, -2.9, 2.9) : this.autoAim(d);
         const power = TUNE.shotTapPower + (1 - TUNE.shotTapPower) * d.charge;
-        this.shoot(d, power, aim, 0.6, bend, true);
+        if (p.s && mine) this.chip(d, power, aim);
+        else this.shoot(d, power, aim, 0.6, bend, true);
       }
       d.charge = -1;
     }
@@ -1076,8 +1077,8 @@ export class FbEngine {
   /** where a shot goes without a joystick bend: the corner away from the keeper */
   autoAim(d: Duck) {
     const k = this.keeperOf((1 - d.team) as FbTeam);
-    if (Math.abs(k.y) > 0.4) return k.y > 0 ? -2.5 : 2.5;
-    return d.y > 0 ? -2.4 : 2.4;
+    if (Math.abs(k.y) > 0.4) return k.y > 0 ? -2.85 : 2.85;
+    return d.y > 0 ? -2.75 : 2.75;
   }
 
   /** the team-mate a pass along (dx, dy) is meant for; -1 = nobody that way (into space). The stick decides: the
@@ -1345,6 +1346,34 @@ export class FbEngine {
         k.dvy = guess * 6.2;
       }
     }
+  }
+  /** a chip (shoot let go with sprint held): a soft, high ball that drops under the bar, over a keeper off his line */
+  chip(d: Duck, power: number, aimY: number) {
+    const b = this.ball;
+    if (b.owner !== d.slot) return;
+    const side = this.dir(d.team);
+    const gx = side * (HALF_L - 0.5);
+    const gy = aimY * 0.6 + this.gauss() * (0.4 + (1 - d.skill) * 0.3);
+    const dist = hyp(gx - b.x, gy - b.y);
+    // lands just under the bar at the goal line: the flight time from the distance, the arc from the time
+    const T = clamp(dist / (9 + 6 * power), 0.7, 1.8);
+    const vz = (1.6 + 0.5 * TUNE.gravity * T * T) / T;
+    let dx = gx - b.x;
+    let dy = gy - b.y;
+    const m = hyp(dx, dy) || 1;
+    dx /= m;
+    dy /= m;
+    const sp = dist / (T * (1 - 0.05 * T));
+    this.release(d, b.x, b.y);
+    b.z = 0.05;
+    b.vx = dx * sp;
+    b.vy = dy * sp;
+    b.vz = vz;
+    b.passTo = -1;
+    b.shot = true;
+    d.hx = dx;
+    d.hy = dy;
+    this.ev(FbEvent.Kick, d.slot);
   }
   /** keeper / computer clears it long (lofted) towards a point */
   boot(d: Duck, x: number, y: number) {
@@ -1764,8 +1793,15 @@ export class FbEngine {
           if (Math.abs(py) < GOAL_W + 1.2) {
             k.saveShot = b.kick;
             const dy = py - k.y;
-            const sp = hyp(b.vx, b.vy);
-            const p = clamp(0.45 + k.skill * 0.6 - Math.max(0, sp - 17) * 0.028 - Math.max(0, Math.abs(dy) - 1) * 0.16 - (tt < 0.22 ? 0.2 : 0), 0.05, 0.92);
+            // can he get a hand there in time? He reacts, then dives across; a ball near the top corner needs
+            // reach upwards too. The geometry decides; skill only nudges the close calls.
+            const react = 0.2 - 0.08 * k.skill;
+            const diveV = 3.4 + 1.6 * k.skill;
+            const reachY = TUNE.keeperReach + clamp(tt - react, 0, 0.45) * diveV;
+            const zAt = Math.max(0, b.z + b.vz * tt - 0.5 * TUNE.gravity * tt * tt);
+            const need = Math.abs(dy) + Math.max(0, zAt - 1.7) * 0.9;
+            const margin = reachY - need;
+            const p = clamp(0.45 + margin * 0.45 + (k.skill - 0.55) * 0.3, 0.03, 0.95);
             k.saveOk = this.rng() < p;
             if (Math.abs(dy) > 0.8 && k.lock <= 0) {
               k.dive = 0.5;
