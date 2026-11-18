@@ -85,6 +85,9 @@ export class FootballGame implements GameRunner {
     const easier = (t: number) => humanTeam[1 - t] && !humanTeam[t];
     const skills = roster.map((p) => (p.gk ? 0.55 : 0.5) + this.rng() * 0.2 - (easier(p.team) && !p.gk ? 0.1 : 0));
     const eng = new FbEngine(roster, { seed, halfSeconds, skill: (p) => skills[p.slot] });
+    // development: the debug view (?fbdebug) reads the engine when the match runs in this browser (solo play)
+    const g = globalThis as unknown as { location?: { search: string }; __fbEngine?: FbEngine };
+    if (g.location && g.location.search.includes("fbdebug")) g.__fbEngine = eng;
     this.eng = eng;
     for (const p of roster) {
       const pl = p.pid ? s.players.find((x) => x.id === p.pid) : undefined;

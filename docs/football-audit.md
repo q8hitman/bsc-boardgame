@@ -53,3 +53,17 @@ Still open, found in this audit:
 
 1. Input (A1, A2) 2. Ball & possession (A3) 3. Passing (A4–A6) 4. Shooting & keeper (A7, A8) 5. Switching (A9)
 6. Debug overlay (A10) 7. Scenario tests (A11) 8. Full regression, build, test deploy.
+
+## 5. Results (what changed, how it was checked)
+
+| Phase | What was wrong | What changed | Files | Checked by |
+|---|---|---|---|---|
+| Input | fixed keys / pad buttons, first pad only | rebindable keys and pad buttons (legend: click an action, press a key or button; saved per device; "افتراضي" resets), the most recently used pad drives, disconnect releases it | `bindings.ts`, `controls.ts`, `football.css` | browser: diagonal keys, rebind + save + reset, pad dead zone, stick, d-pad, B, rebind on the pad, disconnect |
+| Ball | owned ball was positioned, not simulated | dribbler steers the ball's velocity; boards / posts apply; lost if it gets >1.4 m away | `engine.ts` | sims; scenarios 11–18, 23 |
+| Passing | narrow cone, "better option" could beat the stick, no long switches, lofted balls skidded past, high balls flicked on | direction-first selection (any direction, back/square/across); held A = long pass to that mate (ground if clear, lofted if not), through ball for a runner, cross on the wing; soft arcs; flight-aware interception prediction; chest control for the intended receiver | `engine.ts` | scenarios 1–10.5, 15–16, 29–30 |
+| AI | runners didn't give depth reliably | two most advanced team-mates run (middle beyond the last defender + far-side wide) | `ai.ts` | scenarios 26–28 |
+| Shooting / keeper | saves decided by a dice roll | saves from reach geometry (reaction, dive, height); chip = shoot with sprint held; auto-aim nearer the posts | `engine.ts` | scenarios 31, 31.5; sim save counts |
+| Debug | none | `?fbdebug` + F2: owner, ball state, predicted path, vectors, AI targets, pass target / lane / candidates, collision circles | `debug.ts`, `scene.ts`, `server/football.ts` | browser (solo) |
+
+Tests: `npx tsx tools/football-scenarios.ts` (38 checks), `npx tsx tools/football-sim.ts`, and the other games' sims.
+Not automatable here: how it *feels* on a real phone / pad; the Browser pane was hidden, so live rendering was not watched.

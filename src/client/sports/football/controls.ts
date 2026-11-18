@@ -165,7 +165,7 @@ export class FootballControls {
       .map((a) => {
         const ks = keysOf(a.act).map((k) => chip(keyLabel(k))).join(" / ");
         const ps = this.padName ? padOf(a.act).map((b) => chip(PADN[b] ?? String(b))).join("") : "";
-        const label = a.act === "a" ? "تمرير (مطوّل = طويلة / عرضية) · زحلقة" : a.act === "b" ? "تسديد (اضغط مطوّل) · بدّل" : a.name;
+        const label = a.act === "a" ? "تمرير (مطوّل = طويلة / عرضية) · زحلقة" : a.act === "b" ? "تسديد (مطوّل = أقوى · مع الركض = لوب) · بدّل" : a.name;
         return `<div class="kr${this.rebind === a.act ? " wait" : ""}" data-act="${a.act}"><span>${this.rebind === a.act ? "اضغط مفتاح أو زر…" : ks}${ps ? ` <small>${ps}</small>` : ""}</span><b class="l${a.act}">${label}</b></div>`;
       })
       .join("");

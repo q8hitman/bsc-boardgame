@@ -24,6 +24,7 @@ import {
   drawShadow,
 } from "./art";
 import { BOARD_H, END_X, FAR_BOARD_FOOT, HALF_L, NEAR_BOARD_TOP, PPM, PY, PZ, STAND_H, TEAM_COL, WORLD, wx, wy } from "./geom";
+import { debugEnabled, FootballDebug } from "./debug";
 import type { Pose } from "./interp";
 
 /** The pitch, drawn with Phaser in pixel-art mode. It pulls the interpolated pose every frame from `src()`;
@@ -161,6 +162,8 @@ export class FootballScene extends Phaser.Scene {
   private ballLast: [number, number, number] = [0, 0, 0];
   private ballRoll = 0;
   private ballVel: [number, number, number] = [0, 0, 0];
+  /** the development debug view (?fbdebug), null in normal play */
+  private debug: FootballDebug | null = null;
   /** name labels by look (slot, kind, name, resolution), reused instead of re-made */
   private labelCache = new Map<string, Phaser.GameObjects.Text>();
   /** the ball drawn at my predicted feet: the current offset from the server's ball (eased in and out) */
@@ -225,6 +228,10 @@ export class FootballScene extends Phaser.Scene {
   }
 
   create() {
+    if (debugEnabled()) {
+      this.debug = new FootballDebug(this);
+      this.events.once("destroy", () => this.debug?.destroy());
+    }
     const tx = this.textures;
     const ballTex = tx.addCanvas("fb-ball", drawBall())!;
     for (let i = 0; i < 13; i++) ballTex.add(i, 0, i * 10, 0, 10, 10);
@@ -1345,6 +1352,7 @@ export class FootballScene extends Phaser.Scene {
 
     this.updateNets(time, dt);
     this.follow(pose, mySlot, dt, pr);
+    if (this.debug) this.debug.draw(this.o.input());
   }
 
   /** the sprint bar under my duck: shown while it is not full */
