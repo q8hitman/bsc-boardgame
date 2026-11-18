@@ -79,7 +79,11 @@ export class FootballGame implements GameRunner {
     const seed = (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0;
     this.rng = mulberry32(seed ^ 0x9e3779b9);
     const roster = this.buildRoster();
-    const skills = roster.map((p) => (p.gk ? 0.55 : 0.5) + this.rng() * 0.2);
+    // a computer-only team playing against people is a notch easier ("normal" arcade difficulty); people against
+    // people, or the computer against itself, stay even
+    const humanTeam = [0, 1].map((t) => roster.some((p) => p.team === t && p.pid && !s.players.find((x) => x.id === p.pid)?.isBot));
+    const easier = (t: number) => humanTeam[1 - t] && !humanTeam[t];
+    const skills = roster.map((p) => (p.gk ? 0.55 : 0.5) + this.rng() * 0.2 - (easier(p.team) && !p.gk ? 0.1 : 0));
     const eng = new FbEngine(roster, { seed, halfSeconds, skill: (p) => skills[p.slot] });
     this.eng = eng;
     for (const p of roster) {

@@ -6,7 +6,7 @@
 import { LocalServer } from "../src/client/local-server";
 import { FB_TEST } from "../src/server/football";
 import { BALL_R, DT, FbEngine, HALF_L, HALF_W, TUNE } from "../src/shared/football/engine";
-import { FB_MODES, FbAction, PITCH, type FbFrame, type FbPlayer, type FbTeam } from "../src/shared/football/types";
+import { FB_MODES, FbAction, FbEvent, PITCH, type FbFrame, type FbPlayer, type FbTeam } from "../src/shared/football/types";
 import type { GameState } from "../src/shared/types";
 
 let fails = 0;
@@ -94,6 +94,35 @@ function checkWorld(e: FbEngine, bad: string[]) {
   ok(sprintFrames > 0 && stBad === 0, `engine: computer ducks sprint (${((sprintFrames * DT) / 8 / 10).toFixed(1)} s of sprint per duck per match), stamina stays in 0..1`);
   ok(trickCount > 0 && trapCount > 0, `engine: computer ducks use skill moves (${(trickCount / 8).toFixed(1)}/match) and trap passes (${(trapCount / 8).toFixed(0)}/match)`);
   console.log(`   per match: ${(passes / 8).toFixed(0)} passes, ${(kicks / 8).toFixed(1)} shots/kicks, ${(saves / 8).toFixed(1)} saves, ${(tackles / 8).toFixed(0)} tackles`);
+}
+
+{
+  // passing works: most computer passes reach a team-mate (they used to be cut out half the time)
+  let sent = 0;
+  let arrived = 0;
+  for (let seed = 1; seed <= 6; seed++) {
+    const e = new FbEngine(cpuRoster(), { seed, halfSeconds: 180 });
+    e.kickoff(0);
+    let pend = -1;
+    let team = 0;
+    for (let i = 0; i < 30 * 180 && !e.halfOver; i++) {
+      e.step();
+      for (const [k, sl] of e.events) if (k === FbEvent.Pass && sl >= 0 && !e.ducks[sl].gk) {
+        sent++;
+        pend = 0;
+        team = e.ducks[sl].team;
+      }
+      e.events.length = 0;
+      if (pend >= 0) {
+        pend++;
+        if (e.ball.owner >= 0) {
+          if (e.ducks[e.ball.owner].team === team) arrived++;
+          pend = -1;
+        } else if (pend > 150) pend = -1;
+      }
+    }
+  }
+  ok(arrived / sent >= 0.65, `passing: ${((100 * arrived) / sent).toFixed(0)}% of passes reach a team-mate`);
 }
 
 {

@@ -167,7 +167,7 @@ export class FootballControls {
     this.els.a.querySelector("b")!.textContent = pass;
     this.els.b.querySelector("b")!.textContent = shoot;
     this.el.classList.toggle("attack", !!team);
-    this.el.querySelector(".la")!.textContent = team ? "تمرير" : "زحلقة";
+    this.el.querySelector(".la")!.textContent = team ? "تمرير (مطوّل = كورة طويلة / عرضية)" : "زحلقة";
     this.el.querySelector(".lb")!.textContent = team ? "تسديد (اضغط مطوّل)" : "بدّل اللاعب";
   }
 

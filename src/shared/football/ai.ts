@@ -234,10 +234,32 @@ function support(e: FbEngine, d: Duck) {
   }
   d.tx = d.spotX;
   d.ty = d.spotY;
+  // runs: with a team-mate on the ball, the front duck (and the wide duck on the far side) go forward into the
+  // space behind their defence, so there is always somebody to pass to; with the ball wide near their goal they
+  // attack the box (near post / far post) for the cross
+  const carrier = b.owner >= 0 && e.ducks[b.owner].team === d.team ? e.ducks[b.owner] : null;
+  if (carrier && carrier !== d) {
+    const s = e.dir(d.team);
+    const cfx = carrier.x * s;
+    const wide = Math.abs(carrier.y) > 6 && cfx > L - 20;
+    const farSide = d.role !== 3 && d.role !== 0 && Math.sign(d.y || 1) !== Math.sign(carrier.y || 1);
+    if (wide && (d.role === 3 || farSide)) {
+      const near = d.role === 3;
+      d.tx = s * (L - (near ? 6 : 8));
+      d.ty = Math.sign(carrier.y) * (near ? 1.8 : -3.2);
+    } else if (d.role === 3 || (farSide && cfx > -6)) {
+      // the deepest of their outfield ducks: run beyond him
+      let last = -L;
+      for (const o of e.ducks) if (o.team !== d.team && !o.gk) last = Math.max(last, -o.x * -s);
+      const runX = clamp(Math.max(cfx + 9, last + 2), cfx + 4, L - 5);
+      d.tx = s * runX;
+      d.ty = d.role === 3 ? clamp(carrier.y * 0.25 + (d.slot % 2 ? 3 : -3), -8, 8) : Math.sign(d.y || 1) * 10;
+    }
+  }
   const far = hyp(d.tx - d.x, d.ty - d.y);
   d.run = far > 4 ? 1 : 0.75;
   // a run in behind
-  sprintIf(d, far > 8 && (d.tx - d.x) * e.dir(d.team) > 4, 0.6);
+  sprintIf(d, far > 6 && (d.tx - d.x) * e.dir(d.team) > 3, 0.5);
 }
 
 /** the presser: goal-side of the carrier, and now and then a slide tackle */
@@ -247,8 +269,13 @@ function press(e: FbEngine, d: Duck, o: Duck) {
   const gx = goalX - o.x;
   const gy = -o.y;
   const gm = hyp(gx, gy) || 1;
-  d.tx = o.x + o.vx * 0.25 + (gx / gm) * 0.7;
-  d.ty = o.y + o.vy * 0.25 + (gy / gm) * 0.7;
+  // against a person: hold off and jockey (goal-side, a step away), lunging in now and then; that leaves room to
+  // play instead of a defender glued to the ball. Against the computer: tight.
+  const human = e.isHuman(o);
+  if (human && e.time > d.lunge && e.rng() < 0.05 + 0.09 * d.skill) d.lunge = e.time + 0.4;
+  const r = !human ? 0.7 : e.time < d.lunge ? 0.2 : 1.5;
+  d.tx = o.x + o.vx * 0.25 + (gx / gm) * r;
+  d.ty = o.y + o.vy * 0.25 + (gy / gm) * r;
   d.run = 1;
   const dist = hyp(o.x - d.x, o.y - d.y);
   sprintIf(d, dist > 4 || o.sprinting, 0.25);

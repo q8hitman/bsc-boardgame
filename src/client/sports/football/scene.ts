@@ -80,6 +80,12 @@ interface Duck {
   /** the facing last frame, and when it flipped (a quick squash on the turn) */
   face: number;
   turnAt: number;
+  /** the moves strip's texture key ("" = not loaded): windup, strike, pass, slide, get-up, header, falls, dive */
+  mkey: string;
+  /** what the last kick was (0 shot / clearance, 1 pass, 2 header) for its pose */
+  kickKind: number;
+  /** the action before this one (a slide or a fall is followed by getting up) */
+  prevAct: number;
 }
 
 interface Fan {
@@ -122,6 +128,17 @@ const X_SLIDE = 4;
 const X_TRAP = 5;
 const X_SKILL = 6;
 const X_CELEB = 7;
+/** the moves strip (assets/football/moves/<char>-<team>.png, 96x72 frames, made by tools/pixel/moves.py) */
+const M_WINDUP = 0;
+const M_STRIKE = 1;
+const M_PASS = 2;
+const M_SLIDEIN = 3;
+const M_SLIDE = 4;
+const M_GETUP = 5;
+const M_HEADER = 6;
+const M_STAGGER = 7;
+const M_DOWN = 8;
+const M_DIVE = 9;
 
 const duckKey = (char: string, team: FbTeam) => `d-${isClubChar(char) ? char : "abdullah"}-${team}`;
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -144,6 +161,8 @@ export class FootballScene extends Phaser.Scene {
   private ballLast: [number, number, number] = [0, 0, 0];
   private ballRoll = 0;
   private ballVel: [number, number, number] = [0, 0, 0];
+  /** name labels by look (slot, kind, name, resolution), reused instead of re-made */
+  private labelCache = new Map<string, Phaser.GameObjects.Text>();
   /** the ball drawn at my predicted feet: the current offset from the server's ball (eased in and out) */
   private ballOff: [number, number] = [0, 0];
   private speedG!: Phaser.GameObjects.Graphics;
@@ -435,6 +454,7 @@ export class FootballScene extends Phaser.Scene {
         const [, char, team] = k.split("-");
         this.load.spritesheet(k, `assets/football/${char}-${team === "1" ? "red" : "blue"}.png`, { frameWidth: 64, frameHeight: 72 });
         this.load.spritesheet(`x${k}`, `assets/football/extra/${char}-${team === "1" ? "red" : "blue"}.png`, { frameWidth: 64, frameHeight: 72 });
+        this.load.spritesheet(`m${k}`, `assets/football/moves/${char}-${team === "1" ? "red" : "blue"}.png`, { frameWidth: 96, frameHeight: 72 });
       }
       this.pendingRoster = roster;
       if (!this.loading) {
@@ -456,8 +476,9 @@ export class FootballScene extends Phaser.Scene {
       d.ring.destroy();
       d.marker.destroy();
       d.cloud.destroy();
-      d.label?.destroy();
     }
+    for (const t of this.labelCache.values()) t.destroy();
+    this.labelCache.clear();
     this.ducks = roster.map((p) => {
       const key = this.textures.exists(duckKey(p.char, p.team)) ? duckKey(p.char, p.team) : "d-ref";
       const shadow = this.add.image(0, 0, "fb-shadow").setDepth(D_DECAL);
@@ -496,6 +517,9 @@ export class FootballScene extends Phaser.Scene {
         acc: 0,
         turnAt: -1e9,
         face: 1,
+        mkey: this.textures.exists(`m${key}`) ? `m${key}` : "",
+        kickKind: 0,
+        prevAct: 0,
       };
     });
     this.lastCtl = "";
@@ -514,7 +538,15 @@ export class FootballScene extends Phaser.Scene {
     const res = Math.max(1, Math.ceil(this.cameras.main.zoom));
     const key = `lbl-${d.slot}-${kind}-${p.name}-${res}`;
     if (d.labelKey === key) return;
-    d.label?.destroy();
+    // labels are kept and reused: making a text (Arabic shaping + a texture upload) every time the control
+    // switches to another duck hitched the frame on phones
+    d.label?.setVisible(false);
+    const cached = this.labelCache.get(key);
+    if (cached) {
+      d.label = cached.setVisible(true);
+      d.labelKey = key;
+      return;
+    }
     // Arabic names stay smooth text (hard-thresholded Arabic at this size is unreadable), rendered at the
     // camera's own pixel density so they are crisp, with a chunky dark outline to sit with the pixel art
     const fill = kind === "me" ? "#ffe14a" : kind === "human" ? (d.team === 0 ? "#9cc8ff" : "#ffa8a8") : "#ffffff";
@@ -525,6 +557,7 @@ export class FootballScene extends Phaser.Scene {
       .setOrigin(0.5, 1)
       .setDepth(D_TOP)
       .setAlpha(kind === "cpu" ? 0.8 : 1);
+    this.labelCache.set(key, d.label);
     d.labelKey = key;
   }
 
@@ -535,6 +568,11 @@ export class FootballScene extends Phaser.Scene {
     const [bx, by, bz] = this.ballLast;
     const X = wx(bx, bz);
     const Y = wy(by, bz) - 5;
+    // the kicker's pose: a header (the ball up at head height), a pass, or a strike
+    if (kind === FbEvent.Kick || kind === FbEvent.Pass) {
+      const d = this.ducks.find((q) => q.slot === slot);
+      if (d) d.kickKind = bz > 0.8 ? 2 : kind === FbEvent.Pass ? 1 : 0;
+    }
     if (kind === FbEvent.Kick) {
       const power = clamp((speed - 9) / 19, 0, 1);
       this.dust.explode(5 + Math.round(power * 12), wx(bx), wy(by));
@@ -852,12 +890,13 @@ export class FootballScene extends Phaser.Scene {
     const me = this.ducks.find((d) => d.slot === slot);
     const od = owner >= 0 ? this.ducks.find((d) => d.slot === owner) : undefined;
     const aDown = inp.a && !p.aPrev;
+    const aUp = !inp.a && p.aPrev;
     p.aPrev = inp.a;
     const bUp = !inp.b && p.bPrev;
     p.bPrev = inp.b;
     p.kick = Math.max(0, p.kick - dt);
-    // with the ball: the pass (A) and the shot (B let go) swing the leg straight away
-    if (owner === slot && (aDown || bUp)) p.kick = 0.25;
+    // with the ball: the pass and the shot go when the button is let go: swing the leg straight away
+    if (owner === slot && (aUp || bUp)) p.kick = 0.25;
     p.slideCd = Math.max(0, p.slideCd - dt);
     const free = nw.act === FbAction.Idle || nw.act === FbAction.Run || nw.act === FbAction.Sprint || nw.act === FbAction.Kick || nw.act === FbAction.Trap;
     if (aDown && free && p.slide <= 0 && p.slideCd <= 0 && owner !== slot && (!od || !me || od.team !== me.team)) {
@@ -989,6 +1028,7 @@ export class FootballScene extends Phaser.Scene {
       d.lx = x;
       d.ly = y;
       if (act !== d.act) {
+        d.prevAct = d.act;
         d.act = act;
         d.actAt = time;
       }
@@ -1007,33 +1047,31 @@ export class FootballScene extends Phaser.Scene {
       let kneel = false;
       /** a pose from the extra strip (-1 = the main strip's `frame`) */
       let xf = -1;
+      /** a pose from the moves strip (-1 = none): see tools/pixel/moves.py */
+      let mf = -1;
       const since = (time - d.actAt) / 1000;
+      // just up from a slide or a fall: a crouch for a moment
+      const rising = (d.prevAct === FbAction.Slide || d.prevAct === FbAction.Fall) && since < 0.14 && (act === FbAction.Idle || act === FbAction.Run || act === FbAction.Sprint);
       switch (act) {
         case FbAction.Kick: {
-          // the strike: the boot snaps through (stretch), the body follows over the ball, then settles
-          frame = 5;
-          const t = Math.min(1, since / 0.25);
-          rot = face * 0.2 * Math.sin(Math.min(1, t * 1.6) * Math.PI);
-          oy = since < 0.1 ? -2 : 0;
-          if (since < 0.06) {
-            sx = 1.08;
-            sy = 0.93;
+          if (d.kickKind === 2) {
+            // a header: up off the ground, the body thrown at the ball
+            mf = M_HEADER;
+            oy = -Math.round(10 * Math.sin(Math.min(1, since / 0.3) * Math.PI));
+          } else if (d.kickKind === 1) mf = since < 0.05 ? M_WINDUP : M_PASS;
+          else {
+            // the strike: the leg snaps through, a little hop off the standing foot
+            mf = since < 0.04 ? M_WINDUP : M_STRIKE;
+            oy = since > 0.04 && since < 0.14 ? -2 : 0;
           }
           break;
         }
         case FbAction.Slide: {
-          frame = 5;
-          xf = X_SLIDE;
-          // down on the hip, leaning back, the leading boot out: in fast, then held low while it skids
-          const t = Math.min(1, since / 0.09);
-          const e = 1 - (1 - t) * (1 - t);
-          rot = -face * 0.62 * e;
-          oy = Math.round(10 * e);
-          sx = 1 + 0.1 * e;
-          sy = 1 - 0.08 * e;
+          // down on the hip with the leading leg out along the grass
+          mf = since < 0.07 ? M_SLIDEIN : M_SLIDE;
           if (time - d.dustAt > 40) {
             d.dustAt = time;
-            this.dust.explode(3, X + face * 14, Y);
+            this.dust.explode(3, X + face * 18, Y);
           }
           if (time - d.skidAt > 30 && d.speed > 1.5) {
             d.skidAt = time;
@@ -1045,8 +1083,7 @@ export class FootballScene extends Phaser.Scene {
         case FbAction.Sprint:
           frame = 1 + (Math.floor(d.phase) % 4);
           xf = X_SPRINT + (Math.floor(d.phase) % 4);
-          // leaning into it (more while still picking up speed), bouncing on each stride
-          rot = face * (0.09 + clamp(d.acc / 30, -0.05, 0.08));
+          // the sprint frames lean into it; a bounce on each stride
           oy = -Math.round(Math.abs(Math.sin((d.phase % 2) * Math.PI * 0.5)) * 2);
           // a puff of grass every other footfall
           if (Math.floor(d.phase) !== Math.floor(d.phase - dist / 0.55) && Math.floor(d.phase) % 2 === 0) this.dust.explode(2, X - face * 8, Y);
@@ -1064,16 +1101,14 @@ export class FootballScene extends Phaser.Scene {
           xf = X_SKILL;
           const t = Math.min(1, since / 0.35);
           X += Math.round(Math.sin(t * Math.PI * 2) * 4);
-          rot = Math.sin(t * Math.PI * 2) * 0.16;
           if (Math.floor(time / 50) % 2 === 0 && t < 0.6) flip = !flip;
           if (t < 1) this.whoosh(X, Y, t, face);
           break;
         }
         case FbAction.Dive: {
-          frame = 5;
-          const up = d.vy < 0 ? -1 : 1;
-          rot = up * face * -1.25 * Math.min(1, since * 6);
-          oy = -Math.round(16 * Math.sin(Math.min(1, since * 1.5) * Math.PI));
+          // stretched out flat, off the ground in an arc
+          mf = since < 0.05 ? M_STAGGER : M_DIVE;
+          oy = -Math.round(14 * Math.sin(Math.min(1, since * 1.6) * Math.PI));
           break;
         }
         case FbAction.Celebrate: {
@@ -1102,11 +1137,9 @@ export class FootballScene extends Phaser.Scene {
           break;
         }
         case FbAction.Fall: {
-          // a tumble: tips over backwards about 60 degrees and gets straight back up (never lies flat)
-          const t = Math.min(1, since / 0.6);
-          rot = (face > 0 ? -1 : 1) * 1.05 * Math.sin(t * Math.PI);
-          oy = Math.round(3 * Math.sin(t * Math.PI));
-          sy = 1 - 0.08 * Math.sin(t * Math.PI);
+          // taken out: rocked back, down on the grass, then up on one knee
+          mf = since < 0.12 ? M_STAGGER : since < 0.38 ? M_DOWN : M_GETUP;
+          if (since < 0.12) X -= Math.round(face * since * 20);
           break;
         }
         case FbAction.Kneel: {
@@ -1115,34 +1148,24 @@ export class FootballScene extends Phaser.Scene {
           kneel = true;
           const drop = Math.min(1, since * 5);
           oy = Math.round((KNEEL_CUT - 2) * drop);
-          rot = face * 0.14 * drop + Math.sin(time / 700 + d.slot) * 0.03;
+          X += Math.round(Math.sin(time / 700 + d.slot) * 1);
           break;
         }
         default:
           if (d.speed > 0.7 || act === FbAction.Run) {
             frame = 1 + (Math.floor(d.phase) % 4);
-            // a light bob on every stride and a lean that follows the speed (forward into a burst, back when braking)
+            // a light bob on every stride; bursting off (or out of a turn) uses the leaning sprint strides
             oy = -Math.round(Math.abs(Math.sin((d.phase % 2) * Math.PI * 0.5)) * 1.6);
-            rot = face * clamp(d.speed / 60 + d.acc / 45, -0.09, 0.11);
+            if (d.acc > 12 && d.speed > 2.5 && !sad) xf = X_SPRINT + (Math.floor(d.phase) % 4);
           } else oy = Math.sin(time / 260 + d.slot * 1.7) > 0.6 ? 1 : 0;
-          if (sad) {
-            rot = face * 0.13;
-            oy += 1;
-          }
+          if (sad) oy += 1;
+          if (rising) mf = M_GETUP;
       }
       // winding up a shot: lean back, sink a little, tremble at full power
       if (mine && charge >= 0 && (act === FbAction.Idle || act === FbAction.Run)) {
-        rot = -face * (0.08 + charge * 0.14);
-        oy += 1 + Math.round(charge * 2);
-        sy = 1 - charge * 0.05;
+        // the leg drawn back while the shot charges; trembling at full power
+        if (charge > 0.12) mf = M_WINDUP;
         if (charge >= 1) X += Math.round(Math.sin(time / 25));
-      }
-      // a quick squash as he turns round
-      const turn = (time - d.turnAt) / 1000;
-      if (turn < 0.08 && act !== FbAction.Celebrate && act !== FbAction.Skill) {
-        const q = 1 - turn / 0.08;
-        sx *= 1 - 0.12 * q;
-        sy *= 1 + 0.04 * q;
       }
       // ease between poses (into a slide, back up after it, out of a kick) instead of popping; the big spins
       // (a celebration twirl, a skill move, a dive) are shown as they are
@@ -1161,7 +1184,10 @@ export class FootballScene extends Phaser.Scene {
       oy = Math.round(d.oy);
       sx = d.sx;
       sy = d.sy;
-      if (xf >= 0 && d.xkey) {
+      if (mf >= 0 && d.mkey) {
+        if (d.sprite.texture.key !== d.mkey) d.sprite.setTexture(d.mkey, mf);
+        else d.sprite.setFrame(mf);
+      } else if (xf >= 0 && d.xkey) {
         if (d.sprite.texture.key !== d.xkey) d.sprite.setTexture(d.xkey, xf);
         else d.sprite.setFrame(xf);
       } else {

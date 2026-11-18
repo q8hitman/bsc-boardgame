@@ -56,13 +56,27 @@ export const TUNE = {
   keeperReach: 0.95,
   diveReach: 1.25,
   /** ground: decel = rollA + rollB * speed (m/s²) */
-  rollA: 1.2,
-  rollB: 0.32,
+  rollA: 1.0,
+  rollB: 0.2,
   gravity: 9.8,
   boardRest: 0.6,
   postRest: 0.55,
   passMin: 8,
   passMax: 24,
+  /** a ground pass arrives at about this speed (m/s): crisp, so it is not cut out on the way */
+  passArrive: 9,
+  /** a pass is led at most this far ahead of a running team-mate (m) */
+  passLead: 3.5,
+  /** an opponent cannot react to a ball for this long after it is kicked (s), unless it hits him */
+  cutReact: 0.14,
+  /** holding the pass button at least this long (s) makes it a lofted through ball / a cross; it goes by itself at passAuto */
+  lobHold: 0.22,
+  passAuto: 0.55,
+  /** the ball at the feet follows the boot on a spring (1/s): it swings round on a turn instead of being nailed on */
+  dribbleSpring: 16,
+  /** a computer defender against a person: stands off this far (jockeying), and now and then lunges in */
+  jockeyR: 1.5,
+  lungeTime: 0.4,
   /** shot speed: shotMin + (shotMax - shotMin) * power^1.6 (m/s) */
   shotMin: 13,
   shotMax: 32,
@@ -182,6 +196,11 @@ export interface Duck {
   /** a person asked this computer carrier for the ball (slot of the person's duck, until time) */
   wantBy: number;
   wantUntil: number;
+  /** a jockeying defender lunges in for the ball until this time */
+  lunge: number;
+  /** a pass going past him: the kick id he already decided about, and whether he gets a foot to it */
+  cutKick: number;
+  cutOk: boolean;
 }
 
 export interface Ball {
@@ -199,8 +218,9 @@ export interface Ball {
   inNet: boolean;
   /** the team-mate a pass is meant for (-1 = none) */
   passTo: number;
-  /** id of the last kick (keepers decide once per kick) */
+  /** id of the last kick (keepers decide once per kick) and when it was struck (engine time) */
   kick: number;
+  kickAt: number;
   /** the last kick was a shot */
   shot: boolean;
   /** sideways bend (m/s² along y) for spinT more seconds, and extra downward pull while in the air (dip) */
@@ -225,6 +245,9 @@ export interface Person {
   a: boolean;
   b: boolean;
   aDown: boolean;
+  /** A let go since the last tick; how long A has been held for the current pass (-1 = not passing) */
+  aUp: boolean;
+  aT: number;
   bDown: boolean;
   bUp: boolean;
   /** sprint held, skill button held / pressed since the last tick */
@@ -286,6 +309,14 @@ export function passSpeed(d: number, arrive = 5) {
     else hi = m;
   }
   return (lo + hi) / 2;
+}
+
+/** how long a ground pass of `d` metres takes when it arrives at `arrive` m/s */
+export function rollTime(d: number, arrive: number) {
+  const b = TUNE.rollB;
+  const c = TUNE.rollA / b;
+  const v0 = passSpeed(d, arrive);
+  return Math.log((v0 + c) / (arrive + c)) / b;
 }
 
 /** Kick-off formation in the team's own frame (fx: -32 = own goal line, + = towards the other goal). By role. */
@@ -353,12 +384,12 @@ export class FbEngine {
         x: 0, y: 0, vx: 0, vy: 0, hx: 1, hy: 0, face: 1, tx: 0, ty: 0, run: 0, think: (p.slot % 5) * 0.03, spotT: 0, spotX: 0, spotY: 0,
         kickT: 0, slide: 0, sdx: 0, sdy: 0, slideCd: 0, fall: 0, kneel: 0, lock: 0, noPick: 0, hasT: 0, dive: 0, dvx: 0, dvy: 0,
         stamina: 1, tired: false, sprinting: false, wantSprint: false, trick: 0, tkx: 0, tky: 0, trickCd: 0, dash: 0, dkx: 0, dky: 0, dashCd: 0, trap: 0, touch: 0,
-        saveShot: -1, saveOk: false, charge: -1, celebrate: false, mope: false, wantBy: -1, wantUntil: 0,
+        saveShot: -1, saveOk: false, charge: -1, celebrate: false, mope: false, wantBy: -1, wantUntil: 0, lunge: 0, cutKick: -1, cutOk: false,
       };
     });
     this.ctrlBy = this.ducks.map(() => null);
     this.ball = {
-      x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, owner: -1, held: false, last: -1, lastTeam: -1, inNet: false, passTo: -1, kick: 0, shot: false,
+      x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, owner: -1, held: false, last: -1, lastTeam: -1, inNet: false, passTo: -1, kick: 0, kickAt: 0, shot: false,
       spin: 0, spinT: 0, dip: 0, fromX: 0, fromY: 0, maxZ: 0, head: false,
     };
     this.formation(0);
@@ -381,7 +412,7 @@ export class FbEngine {
 
   // ------------------------------------------------------------------ people
   addPerson(pid: string, team: FbTeam, own: number) {
-    this.people.set(pid, { pid, team, own, active: true, x: 0, y: 0, a: false, b: false, aDown: false, bDown: false, bUp: false, s: false, k: false, kDown: false, ctrl: own, ctrlT: 0 });
+    this.people.set(pid, { pid, team, own, active: true, x: 0, y: 0, a: false, b: false, aDown: false, aUp: false, aT: -1, bDown: false, bUp: false, s: false, k: false, kDown: false, ctrl: own, ctrlT: 0 });
   }
   setActive(pid: string, active: boolean) {
     const p = this.people.get(pid);
@@ -389,7 +420,8 @@ export class FbEngine {
     p.active = active;
     if (!active) {
       if (this.ducks[p.ctrl]) this.ducks[p.ctrl].charge = -1;
-      p.a = p.b = p.aDown = p.bDown = p.bUp = p.s = p.k = p.kDown = false;
+      p.a = p.b = p.aDown = p.aUp = p.bDown = p.bUp = p.s = p.k = p.kDown = false;
+      p.aT = -1;
       p.x = p.y = 0;
     }
   }
@@ -397,6 +429,7 @@ export class FbEngine {
     const p = this.people.get(pid);
     if (!p) return;
     if (inp.a && !p.a) p.aDown = true;
+    if (!inp.a && p.a) p.aUp = true;
     if (inp.b && !p.b) p.bDown = true;
     if (!inp.b && p.b) p.bUp = true;
     if (inp.k && !p.k) p.kDown = true;
@@ -926,11 +959,30 @@ export class FbEngine {
   private personDrive(d: Duck, p: Person, dt: number): [number, number] {
     let jx = p.x;
     let jy = p.y;
-    const m = hyp(jx, jy);
+    let m = hyp(jx, jy);
     if (m < 0.15) jx = jy = 0;
     else if (m > 1) {
       jx /= m;
       jy /= m;
+    }
+    // receiving a pass: he goes to meet the ball by himself (where he can first reach it), unless the stick
+    // clearly asks for something else
+    const bl = this.ball;
+    if (bl.owner < 0 && bl.passTo === d.slot) {
+      const r = this.reach(d);
+      let rx = r.x - d.x;
+      let ry = r.y - d.y;
+      const rl = hyp(rx, ry);
+      if (rl > 0.3) {
+        rx /= rl;
+        ry /= rl;
+        const agree = m < 0.3 || (jx * rx + jy * ry) / Math.max(0.01, Math.min(1, m)) > 0.3;
+        if (agree) {
+          jx = rx;
+          jy = ry;
+          m = 1;
+        }
+      }
     }
     if (m >= 0.3) {
       // turn on the spot even before the duck picks up speed (so passes go where the stick points)
@@ -943,11 +995,8 @@ export class FbEngine {
     const ownerTeam = b.owner >= 0 ? this.ducks[b.owner].team : -1;
     if (p.aDown) {
       p.aDown = false;
-      if (mine) {
-        const px = m >= 0.3 ? jx : d.hx;
-        const py = m >= 0.3 ? jy : d.hy;
-        this.pass(d, this.pickPass(d, px, py), 0.03, px, py);
-      }
+      // with the ball: the pass goes when A is let go (a tap = along the ground, held = lofted over the top)
+      if (mine) p.aT = 0;
       else if (ownerTeam === d.team) {
         const o = this.ducks[b.owner];
         o.wantBy = d.slot;
@@ -958,6 +1007,20 @@ export class FbEngine {
         this.slideStart(d, ax, ay);
       }
     }
+    if (p.aT >= 0) {
+      if (!mine) p.aT = -1;
+      else {
+        if (p.a) p.aT += dt;
+        if (p.aUp || !p.a || p.aT >= TUNE.passAuto) {
+          const px = m >= 0.3 ? jx : d.hx;
+          const py = m >= 0.3 ? jy : d.hy;
+          if (p.aT >= TUNE.lobHold) this.through(d, px, py);
+          else this.pass(d, this.pickPass(d, px, py), 0.02, px, py);
+          p.aT = -1;
+        }
+      }
+    }
+    p.aUp = false;
     if (p.kDown) {
       p.kDown = false;
       const kx = m >= 0.3 ? jx : 0;
@@ -1007,8 +1070,9 @@ export class FbEngine {
       const dist = hyp(vx, vy);
       if (dist < 2) continue;
       const cos = (vx * dx + vy * dy) / dist;
-      // a forgiving cone (a thumb on a phone is not precise): the stick picks the side, the open mate wins
-      if (cos < 0.42) continue;
+      // a forgiving cone (a thumb on a phone is not precise): the stick picks the side, the open mate wins;
+      // straight down the stick is still preferred (cos weighs most)
+      if (cos < 0.2) continue;
       const risk = this.laneRisk(d, m.x, m.y);
       const sc = cos * 3 - dist * 0.04 - (risk < 1.2 ? 1.2 : risk < 2 ? 0.4 : 0) - (m.gk ? 1 : 0);
       if (sc > bs) {
@@ -1041,6 +1105,7 @@ export class FbEngine {
     b.last = d.slot;
     b.lastTeam = d.team;
     b.kick++;
+    b.kickAt = this.time;
     b.x = clamp(x, -HALF_L + BALL_R + 0.05, HALF_L - BALL_R - 0.05);
     b.y = clamp(y, -HALF_W + BALL_R, HALF_W - BALL_R);
     b.fromX = d.x;
@@ -1059,11 +1124,19 @@ export class FbEngine {
     let tx: number;
     let ty: number;
     if (to >= 0) {
+      // where he will be when the ball gets there (a few rounds: the travel time depends on the distance)
       const m = this.ducks[to];
-      const d0 = hyp(m.x - d.x, m.y - d.y);
-      const tEst = d0 / 15;
-      tx = m.x + m.vx * tEst * 0.8;
-      ty = m.y + m.vy * tEst * 0.8;
+      let t = hyp(m.x - d.x, m.y - d.y) / 15;
+      tx = m.x;
+      ty = m.y;
+      // (led into his stride, but never more than a few metres: a long lead is a race the defender wins)
+      for (let i = 0; i < 3; i++) {
+        const lead = Math.min(TUNE.passLead, hyp(m.vx, m.vy) * t * 0.7);
+        const ms = hyp(m.vx, m.vy) || 1;
+        tx = m.x + (m.vx / ms) * lead;
+        ty = m.y + (m.vy / ms) * lead;
+        t = rollTime(hyp(tx - d.x, ty - d.y), TUNE.passArrive);
+      }
     } else {
       const sm = hyp(sx, sy) || 1;
       tx = d.x + (sx / sm) * 13;
@@ -1071,6 +1144,8 @@ export class FbEngine {
     }
     tx = clamp(tx, -HALF_L + 1, HALF_L - 1);
     ty = clamp(ty, -HALF_W + 1, HALF_W - 1);
+    // into space: the team-mate who gets there first runs onto it (and a person's control follows him)
+    if (to < 0) to = this.runnerFor(d, tx, ty);
     let dx = tx - d.x;
     let dy = ty - d.y;
     const dist = Math.max(1, hyp(dx, dy));
@@ -1093,13 +1168,100 @@ export class FbEngine {
       vz = clamp(3 + (dist - 26) * 0.15, 3, 6.5);
       const tf = (2 * vz) / TUNE.gravity;
       sp = clamp(dist / (tf + 0.9), 12, TUNE.passMax);
-    } else sp = clamp(passSpeed(dist, 5) * (1 + (this.rng() - 0.5) * err * 2), TUNE.passMin, TUNE.passMax);
+    } else sp = clamp(passSpeed(dist, TUNE.passArrive) * (1 + (this.rng() - 0.5) * err * 2), TUNE.passMin, TUNE.passMax);
     this.release(d, d.x + dx * 0.6, d.y + dy * 0.6);
     b.vx = dx * sp;
     b.vy = dy * sp;
     b.vz = vz;
     b.z = 0;
     b.passTo = to;
+    b.shot = false;
+    d.hx = dx;
+    d.hy = dy;
+    this.ev(FbEvent.Pass, d.slot);
+  }
+  /** a person's held pass: wide in the last third, a cross into the box (to a team-mate's head); elsewhere a
+   *  ball over the top into the space ahead of the team-mate running that way */
+  through(d: Duck, sx: number, sy: number) {
+    if (this.ball.owner !== d.slot) return;
+    const s = this.dir(d.team);
+    const sm = hyp(sx, sy) || 1;
+    sx /= sm;
+    sy /= sm;
+    const mates = this.ducks.filter((m) => m.team === d.team && m !== d && !m.gk && m.fall <= 0);
+    const toLine = HALF_L - d.x * s;
+    if (toLine < 20 && Math.abs(d.y) > 6) {
+      // the cross: the team-mate best placed in the box, the ball dropping at head height in front of him
+      const inBox = mates.filter((m) => HALF_L - m.x * s < 15 && Math.abs(m.y) < 9).sort((p, q) => Math.abs(p.y) - Math.abs(q.y));
+      const m = inBox[0];
+      const tx = m ? m.x + m.vx * 0.7 : s * (HALF_L - PITCH.penSpot);
+      const ty = m ? m.y + m.vy * 0.7 : -Math.sign(d.y) * 1.5;
+      return this.lob(d, tx, ty, m ? m.slot : -1, 1.5);
+    }
+    // the runner: ahead along the stick, going forward, in space
+    let best: Duck | null = null;
+    let bs = -Infinity;
+    for (const m of mates) {
+      const vx = m.x - d.x;
+      const vy = m.y - d.y;
+      const dist = hyp(vx, vy);
+      if (dist < 4) continue;
+      const cos = (vx * sx + vy * sy) / dist;
+      if (cos < 0.3) continue;
+      const fwd = (m.x - d.x) * s;
+      let open = 99;
+      for (const o of this.ducks) if (o.team !== d.team && !o.gk) open = Math.min(open, hyp(o.x - m.x, o.y - m.y));
+      const sc = cos * 2 + fwd * 0.08 + Math.min(6, open) * 0.2 + m.vx * s * 0.1 - (dist > 30 ? 1.5 : 0);
+      if (sc > bs) {
+        bs = sc;
+        best = m;
+      }
+    }
+    if (!best) {
+      // nobody that way: knock it on into the space ahead
+      return this.lob(d, d.x + sx * 16, d.y + sy * 16, -1, 0);
+    }
+    // into his path, a few metres ahead of him, towards their goal
+    const T = clamp(hyp(best.x - d.x, best.y - d.y) / 16, 0.6, 1.4);
+    const tx = best.x + best.vx * T + s * 2.5;
+    const ty = best.y + best.vy * T;
+    this.lob(d, tx, ty, best.slot, 0);
+  }
+  /** the passer's team-mate (not the keeper) who can get to (x, y) first; -1 = nobody gets near it */
+  runnerFor(d: Duck, x: number, y: number) {
+    let best = -1;
+    let bt = Infinity;
+    for (const m of this.ducks) {
+      if (m.team !== d.team || m === d || m.gk || m.fall > 0) continue;
+      const t = hyp(m.x - x, m.y - y) / (m.stamina > 0.2 ? TUNE.sprintSpeed : TUNE.jogSpeed);
+      if (t < bt) {
+        bt = t;
+        best = m.slot;
+      }
+    }
+    return bt < 2.2 ? best : -1;
+  }
+  /** a lofted ball that comes down at (tx, ty) at height `arriveZ` (0 = on the grass, 1.5 = for a header) */
+  lob(d: Duck, tx: number, ty: number, to: number, arriveZ: number) {
+    const b = this.ball;
+    if (b.owner !== d.slot) return;
+    tx = clamp(tx, -HALF_L + 1.5, HALF_L - 1.5);
+    ty = clamp(ty, -HALF_W + 1.5, HALF_W - 1.5);
+    let dx = tx - d.x;
+    let dy = ty - d.y;
+    const dist = Math.max(1, hyp(dx, dy));
+    dx /= dist;
+    dy /= dist;
+    const T = clamp(dist / 17, 0.55, 1.35);
+    // (a little air drag: the ball slows ~10% a second while up)
+    const sp = clamp(dist / (T * 0.95), 6, 26);
+    const vz = (arriveZ + 0.5 * TUNE.gravity * T * T) / T;
+    this.release(d, d.x + dx * 0.6, d.y + dy * 0.6);
+    b.z = 0.05;
+    b.vx = dx * sp;
+    b.vy = dy * sp;
+    b.vz = vz;
+    b.passTo = to >= 0 ? to : this.runnerFor(d, tx, ty);
     b.shot = false;
     d.hx = dx;
     d.hy = dy;
@@ -1315,15 +1477,26 @@ export class FbEngine {
     this.glue();
   }
   /** the owned ball sits at the owner's feet (in the keeper's hands) */
-  private glue() {
+  private glue(dt = 0) {
     const b = this.ball;
     const o = this.ducks[b.owner];
     // tight at a jog (and in a skill move); knocked on ahead at a sprint, touch after touch
     const dd = b.held ? 0.3 : o.trick > 0 ? 0.35 : o.sprinting
       ? TUNE.sprintTouchMin + (TUNE.sprintTouchMax - TUNE.sprintTouchMin) * (0.5 - 0.5 * Math.cos(o.touch * Math.PI * 4))
       : TUNE.dribbleDist;
-    b.x = clamp(o.x + o.hx * dd, -HALF_L + BALL_R + 0.05, HALF_L - BALL_R - 0.05);
-    b.y = clamp(o.y + o.hy * dd, -HALF_W + BALL_R, HALF_W - BALL_R);
+    const tx = o.x + o.hx * dd;
+    const ty = o.y + o.hy * dd;
+    if (dt > 0 && !b.held && o.trick <= 0 && hyp(b.x - tx, b.y - ty) < 1.6) {
+      // carried along with him, eased towards the boot: on a sharp turn it swings round his feet
+      const k = 1 - Math.exp(-dt * TUNE.dribbleSpring);
+      b.x += o.vx * dt + (tx - b.x - o.vx * dt) * k;
+      b.y += o.vy * dt + (ty - b.y - o.vy * dt) * k;
+    } else {
+      b.x = tx;
+      b.y = ty;
+    }
+    b.x = clamp(b.x, -HALF_L + BALL_R + 0.05, HALF_L - BALL_R - 0.05);
+    b.y = clamp(b.y, -HALF_W + BALL_R, HALF_W - BALL_R);
     b.z = b.held ? 0.7 : 0;
     b.vx = o.vx;
     b.vy = o.vy;
@@ -1333,7 +1506,7 @@ export class FbEngine {
   // ------------------------------------------------------------------ ball
   private moveBall(dt: number) {
     const b = this.ball;
-    if (b.owner >= 0) return this.glue();
+    if (b.owner >= 0) return this.glue(dt);
     // vertical
     if (b.spinT > 0) {
       b.vy += b.spin * dt;
@@ -1531,7 +1704,7 @@ export class FbEngine {
             k.saveShot = b.kick;
             const dy = py - k.y;
             const sp = hyp(b.vx, b.vy);
-            const p = clamp(0.38 + k.skill * 0.6 - Math.max(0, sp - 17) * 0.028 - Math.max(0, Math.abs(dy) - 1) * 0.16 - (tt < 0.22 ? 0.2 : 0), 0.05, 0.92);
+            const p = clamp(0.45 + k.skill * 0.6 - Math.max(0, sp - 17) * 0.028 - Math.max(0, Math.abs(dy) - 1) * 0.16 - (tt < 0.22 ? 0.2 : 0), 0.05, 0.92);
             k.saveOk = this.rng() < p;
             if (Math.abs(dy) > 0.8 && k.lock <= 0) {
               k.dive = 0.5;
@@ -1685,6 +1858,28 @@ export class FbEngine {
         return this.header(d);
       }
     }
+    // a loose ball on the grass never goes through a duck: off a body that can't take it (just kicked it, down,
+    // sliding past) it bounces away
+    if (b.z < 0.9) {
+      for (const d of this.ducks) {
+        if (!(d.noPick > 0 || d.fall > 0 || d.slide > 0) || (d.slot === b.last && this.time - b.kickAt < 0.25)) continue;
+        const dx = b.x - d.x;
+        const dy = b.y - d.y;
+        const dist = hyp(dx, dy);
+        const R = TUNE.duckR * 0.8 + BALL_R;
+        if (dist >= R || dist === 0) continue;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const vn = (b.vx - d.vx) * nx + (b.vy - d.vy) * ny;
+        if (vn < 0) {
+          b.vx -= 1.45 * vn * nx;
+          b.vy -= 1.45 * vn * ny;
+          b.spinT = 0;
+        }
+        b.x = clamp(d.x + nx * R, -HALF_L - PITCH.goalDepth + BALL_R, HALF_L + PITCH.goalDepth - BALL_R);
+        b.y = clamp(d.y + ny * R, -HALF_W + BALL_R, HALF_W - BALL_R);
+      }
+    }
     // loose ball: the nearest duck that can, takes it
     let best: Duck | null = null;
     let bd = Infinity;
@@ -1695,7 +1890,19 @@ export class FbEngine {
       const r = d.gk ? TUNE.keeperReach : TUNE.pickupR;
       if (b.z > (d.gk ? 2.2 : 0.9)) continue;
       const dist = hyp(b.x - d.x, b.y - d.y);
-      if (dist < r && dist < bd) {
+      if (dist >= r) continue;
+      if (!d.gk && b.lastTeam >= 0 && d.team !== b.lastTeam && dist > TUNE.duckR + BALL_R) {
+        // an opponent the ball goes past (not into his body): just after the kick he has no time to react; a
+        // quick ball beside him gets cut out only sometimes (decided once per kick)
+        if (this.time - b.kickAt < TUNE.cutReact) continue;
+        if (d.cutKick !== b.kick) {
+          d.cutKick = b.kick;
+          const rel = hyp(b.vx - d.vx, b.vy - d.vy);
+          d.cutOk = this.rng() < clamp(1.2 - rel / 11, 0.12, 0.92) * (0.75 + 0.35 * d.skill);
+        }
+        if (!d.cutOk) continue;
+      }
+      if (dist < bd) {
         bd = dist;
         best = d;
       }
