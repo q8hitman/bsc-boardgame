@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { isClubChar } from "../../../shared/football/club";
+import { TUNE } from "../../../shared/football/engine";
 import { FbAction, FbEvent, PITCH, type FbInput, type FbPlayer, type FbStage, type FbTeam } from "../../../shared/football/types";
 import {
   FANS_SRC,
@@ -69,6 +70,16 @@ interface Duck {
   /** the extra pose strip's texture key ("" = not loaded) */
   xkey: string;
   skidAt: number;
+  /** smoothed pose (rotation, vertical offset, scale) so one action eases into the next instead of popping */
+  rot: number;
+  oy: number;
+  sx: number;
+  sy: number;
+  /** smoothed change of speed (m/s²): leaning into a burst, back when braking */
+  acc: number;
+  /** the facing last frame, and when it flipped (a quick squash on the turn) */
+  face: number;
+  turnAt: number;
 }
 
 interface Fan {
@@ -105,13 +116,6 @@ const D_DECAL = -100000;
 const D_NEAR = 50000;
 const D_TOP = 100000;
 
-/** must match the engine (src/shared/football/engine.ts): metres per second, metres per second squared */
-const JOG_SPEED = 5.4;
-const JOG_BALL = 4.8;
-const SPRINT_SPEED = 8.2;
-const SPRINT_BALL = 7.2;
-const ACCEL = 34;
-const ACCEL_SPRINT = 13;
 /** the extra pose strip (assets/football/extra/<char>-<team>.png, see club.ts): sprint1..4, slide, trap, skill, celebrate */
 const X_SPRINT = 0;
 const X_SLIDE = 4;
@@ -140,6 +144,8 @@ export class FootballScene extends Phaser.Scene {
   private ballLast: [number, number, number] = [0, 0, 0];
   private ballRoll = 0;
   private ballVel: [number, number, number] = [0, 0, 0];
+  /** the ball drawn at my predicted feet: the current offset from the server's ball (eased in and out) */
+  private ballOff: [number, number] = [0, 0];
   private speedG!: Phaser.GameObjects.Graphics;
   /** slide marks on the grass: [time, x, y, w] in world px */
   private skids: [number, number, number, number][] = [];
@@ -179,7 +185,13 @@ export class FootballScene extends Phaser.Scene {
   private result: FbTeam | -1 | undefined;
   /** the controlled duck, predicted here from the stick */
   private tired = false;
-  private pred = { slot: -1, x: 0, y: 0, vx: 0, vy: 0, face: 1, phase: 0, sprint: false };
+  private pred = {
+    slot: -1, x: 0, y: 0, vx: 0, vy: 0, face: 1, phase: 0, sprint: false,
+    /** heading (unit), the slide started here (time left, direction, cooldown), the last A, the action to show (-1 = by speed) */
+    hx: 1, hy: 0, slide: 0, sdx: 1, sdy: 0, slideCd: 0, aPrev: false, act: -1,
+    /** the last B, and a kick shown here at once (a shot on release, a pass on A) until the server catches up */
+    bPrev: false, kick: 0,
+  };
 
   constructor(o: SceneOpts) {
     super({ key: "football" });
@@ -477,6 +489,13 @@ export class FootballScene extends Phaser.Scene {
         sparkAt: 0,
         xkey: this.textures.exists(`x${key}`) ? `x${key}` : "",
         skidAt: 0,
+        rot: 0,
+        oy: 0,
+        sx: 1,
+        sy: 1,
+        acc: 0,
+        turnAt: -1e9,
+        face: 1,
       };
     });
     this.lastCtl = "";
@@ -793,21 +812,24 @@ export class FootballScene extends Phaser.Scene {
   }
 
   /* ------------------------------------------------------------------ the controlled duck */
-  /** move this phone's duck at once from the stick (engine speeds), easing back to the server's position */
+  /** move this phone's duck at once from the stick (engine speeds), easing towards the server's position. It keeps
+   *  going through slides, falls and skill moves (following the server's own motion), so the duck never jumps back
+   *  ~100 ms when one starts or snaps forward when it ends. A slide starts here the moment A is pressed. */
   private predict(slot: number, owner: number, dt: number) {
     const p = this.pred;
     const inp = this.o.input();
     const nw = slot >= 0 ? this.o.newest(slot) : null;
-    const free = nw && (nw.act === FbAction.Idle || nw.act === FbAction.Run || nw.act === FbAction.Sprint || nw.act === FbAction.Kick || nw.act === FbAction.Trap);
-    if (!inp || !nw || !free || this.stage !== "play") {
+    if (!inp || !nw || this.stage !== "play") {
       p.slot = -1;
+      p.slide = 0;
+      p.act = -1;
       return null;
     }
     // where the server has the duck now (the newest frame, carried forward a little)
     const age = clamp((this.o.serverNow() - nw.t) / 1000 + 0.05, 0, 0.3);
     const ex = nw.x + nw.vx * age;
     const ey = nw.y + nw.vy * age;
-    if (p.slot !== slot) Object.assign(p, { slot, x: ex, y: ey, vx: nw.vx, vy: nw.vy });
+    if (p.slot !== slot) Object.assign(p, { slot, x: ex, y: ey, vx: nw.vx, vy: nw.vy, slide: 0, act: -1 });
     let ix = inp.x;
     let iy = inp.y;
     const il = Math.hypot(ix, iy);
@@ -815,41 +837,97 @@ export class FootballScene extends Phaser.Scene {
       ix /= il;
       iy /= il;
     }
+    if (il >= 0.3) {
+      const m = Math.min(1, il);
+      p.hx = ix / m;
+      p.hy = iy / m;
+    }
     const st = this.o.stamina();
-    // the engine's rule: run dry and the sprint stops until the bar is back to 0.15
+    // the engine's rule: run dry and the sprint stops until the bar is back to tiredUntil
     if (st !== undefined && st < 0.02) this.tired = true;
-    else if (st === undefined || st >= 0.15) this.tired = false;
+    else if (st === undefined || st >= TUNE.tiredUntil) this.tired = false;
     const sprint = !!inp.s && il > 0.1 && !this.tired;
     p.sprint = sprint;
-    const max = owner === slot ? (sprint ? SPRINT_BALL : JOG_BALL) : sprint ? SPRINT_SPEED : JOG_SPEED;
-    let dvx = ix * max - p.vx;
-    let dvy = iy * max - p.vy;
-    const dl = Math.hypot(dvx, dvy);
-    const lim = (sprint ? ACCEL_SPRINT : ACCEL) * dt;
-    if (dl > lim) {
-      dvx *= lim / dl;
-      dvy *= lim / dl;
+    // A without the ball against the other team: slide now, here (the server confirms it a moment later)
+    const me = this.ducks.find((d) => d.slot === slot);
+    const od = owner >= 0 ? this.ducks.find((d) => d.slot === owner) : undefined;
+    const aDown = inp.a && !p.aPrev;
+    p.aPrev = inp.a;
+    const bUp = !inp.b && p.bPrev;
+    p.bPrev = inp.b;
+    p.kick = Math.max(0, p.kick - dt);
+    // with the ball: the pass (A) and the shot (B let go) swing the leg straight away
+    if (owner === slot && (aDown || bUp)) p.kick = 0.25;
+    p.slideCd = Math.max(0, p.slideCd - dt);
+    const free = nw.act === FbAction.Idle || nw.act === FbAction.Run || nw.act === FbAction.Sprint || nw.act === FbAction.Kick || nw.act === FbAction.Trap;
+    if (aDown && free && p.slide <= 0 && p.slideCd <= 0 && owner !== slot && (!od || !me || od.team !== me.team)) {
+      p.slide = TUNE.slideTime;
+      p.slideCd = TUNE.slideCooldown + TUNE.slideTime;
+      p.sdx = p.hx;
+      p.sdy = p.hy;
     }
-    p.vx += dvx;
-    p.vy += dvy;
+    // the server says something else is going on (a fall, a stumble): drop the local slide
+    if (p.slide > 0 && !free && nw.act !== FbAction.Slide) p.slide = 0;
+    let follow = 0;
+    if (p.slide > 0) {
+      p.slide -= dt;
+      const u = clamp(p.slide / TUNE.slideTime, 0, 1);
+      const k = Math.max(0.22, u * (1.15 - 0.15 * u));
+      // the server may bend it onto the ball (aim assist): lean towards its direction once it reports the slide
+      if (nw.act === FbAction.Slide) {
+        const sv = Math.hypot(nw.vx, nw.vy);
+        if (sv > 2) {
+          p.sdx += (nw.vx / sv - p.sdx) * Math.min(1, dt * 10);
+          p.sdy += (nw.vy / sv - p.sdy) * Math.min(1, dt * 10);
+        }
+      }
+      p.vx = p.sdx * TUNE.slideSpeed * k;
+      p.vy = p.sdy * TUNE.slideSpeed * k;
+      follow = 5;
+    } else if (!free) {
+      // a fall, a skill move, a server-side slide: move as the server moves
+      const k = Math.min(1, dt * 14);
+      p.vx += (nw.vx - p.vx) * k;
+      p.vy += (nw.vy - p.vy) * k;
+      follow = 8;
+    } else {
+      const max = owner === slot ? (sprint ? TUNE.sprintBall : TUNE.jogBall) : sprint ? TUNE.sprintSpeed : TUNE.jogSpeed;
+      const tvx = ix * max;
+      const tvy = iy * max;
+      let dvx = tvx - p.vx;
+      let dvy = tvy - p.vy;
+      const dl = Math.hypot(dvx, dvy);
+      let lim = (sprint ? TUNE.accelSprint : TUNE.accel) * dt;
+      if (tvx * p.vx + tvy * p.vy < 0 || Math.hypot(tvx, tvy) < Math.hypot(p.vx, p.vy) - 0.5) lim *= TUNE.brakeFactor;
+      if (dl > lim) {
+        dvx *= lim / dl;
+        dvy *= lim / dl;
+      }
+      p.vx += dvx;
+      p.vy += dvy;
+    }
     p.x += p.vx * dt;
     p.y += p.vy * dt;
-    // ease towards the server, snap when it disagrees a lot (a tackle, a reset)
+    // ease towards the server; a big disagreement (a reset, a teleport) snaps
     const ex2 = ex - p.x;
     const ey2 = ey - p.y;
-    if (Math.hypot(ex2, ey2) > 2.5) {
+    if (Math.hypot(ex2, ey2) > 3) {
       p.x = ex;
       p.y = ey;
       p.vx = nw.vx;
       p.vy = nw.vy;
+      p.slide = 0;
     } else {
-      const k = Math.min(1, dt * (il < 0.1 ? 7 : 2.5));
+      const k = Math.min(1, dt * (follow || (il < 0.1 ? 7 : 2.5)));
       p.x += ex2 * k;
       p.y += ey2 * k;
     }
     p.x = clamp(p.x, -HALF_L - 1, HALF_L + 1);
     p.y = clamp(p.y, -PITCH.width / 2 - 0.5, PITCH.width / 2 + 0.5);
-    if (Math.abs(ix) > 0.15) p.face = ix > 0 ? 1 : -1;
+    if (p.slide > 0) p.face = p.sdx >= 0 ? 1 : -1;
+    else if (Math.abs(ix) > 0.15 && free) p.face = ix > 0 ? 1 : -1;
+    else if (!free && Math.abs(nw.vx) > 0.5) p.face = nw.vx > 0 ? 1 : -1;
+    p.act = p.slide > 0 ? FbAction.Slide : !free ? nw.act : p.kick > 0 ? FbAction.Kick : -1;
     return p;
   }
 
@@ -892,14 +970,21 @@ export class FootballScene extends Phaser.Scene {
         x = pr.x;
         y = pr.y;
         face = pr.face;
-        if (act === FbAction.Idle || act === FbAction.Run || act === FbAction.Sprint) {
+        if (pr.act >= 0) act = pr.act;
+        else if (act === FbAction.Idle || act === FbAction.Run || act === FbAction.Sprint) {
           const v = Math.hypot(pr.vx, pr.vy);
           act = v > 0.6 ? (pr.sprint && v > 6 ? FbAction.Sprint : FbAction.Run) : FbAction.Idle;
         }
       }
       const dist = Math.hypot(x - d.lx, y - d.ly);
       const sp = dist / Math.max(dt, 0.001);
+      const prevSpeed = d.speed;
       d.speed += (Math.min(sp, 14) - d.speed) * 0.25;
+      d.acc += (clamp((d.speed - prevSpeed) / Math.max(dt, 0.001), -40, 40) - d.acc) * 0.12;
+      if (face !== d.face) {
+        d.face = face;
+        d.turnAt = time;
+      }
       d.vy += ((y - d.ly) / Math.max(dt, 0.001) - d.vy) * 0.3;
       d.lx = x;
       d.ly = y;
@@ -924,16 +1009,28 @@ export class FootballScene extends Phaser.Scene {
       let xf = -1;
       const since = (time - d.actAt) / 1000;
       switch (act) {
-        case FbAction.Kick:
+        case FbAction.Kick: {
+          // the strike: the boot snaps through (stretch), the body follows over the ball, then settles
           frame = 5;
-          oy = since < 0.12 ? -2 : 0;
+          const t = Math.min(1, since / 0.25);
+          rot = face * 0.2 * Math.sin(Math.min(1, t * 1.6) * Math.PI);
+          oy = since < 0.1 ? -2 : 0;
+          if (since < 0.06) {
+            sx = 1.08;
+            sy = 0.93;
+          }
           break;
+        }
         case FbAction.Slide: {
           frame = 5;
           xf = X_SLIDE;
-          const t = Math.min(1, since / 0.12);
-          rot = -face * (0.38 * t);
-          oy = Math.round(7 * t);
+          // down on the hip, leaning back, the leading boot out: in fast, then held low while it skids
+          const t = Math.min(1, since / 0.09);
+          const e = 1 - (1 - t) * (1 - t);
+          rot = -face * 0.62 * e;
+          oy = Math.round(10 * e);
+          sx = 1 + 0.1 * e;
+          sy = 1 - 0.08 * e;
           if (time - d.dustAt > 40) {
             d.dustAt = time;
             this.dust.explode(3, X + face * 14, Y);
@@ -948,7 +1045,9 @@ export class FootballScene extends Phaser.Scene {
         case FbAction.Sprint:
           frame = 1 + (Math.floor(d.phase) % 4);
           xf = X_SPRINT + (Math.floor(d.phase) % 4);
-          rot = face * 0.07;
+          // leaning into it (more while still picking up speed), bouncing on each stride
+          rot = face * (0.09 + clamp(d.acc / 30, -0.05, 0.08));
+          oy = -Math.round(Math.abs(Math.sin((d.phase % 2) * Math.PI * 0.5)) * 2);
           // a puff of grass every other footfall
           if (Math.floor(d.phase) !== Math.floor(d.phase - dist / 0.55) && Math.floor(d.phase) % 2 === 0) this.dust.explode(2, X - face * 8, Y);
           break;
@@ -1020,8 +1119,12 @@ export class FootballScene extends Phaser.Scene {
           break;
         }
         default:
-          if (d.speed > 0.7 || act === FbAction.Run) frame = 1 + (Math.floor(d.phase) % 4);
-          else oy = Math.sin(time / 260 + d.slot * 1.7) > 0.6 ? 1 : 0;
+          if (d.speed > 0.7 || act === FbAction.Run) {
+            frame = 1 + (Math.floor(d.phase) % 4);
+            // a light bob on every stride and a lean that follows the speed (forward into a burst, back when braking)
+            oy = -Math.round(Math.abs(Math.sin((d.phase % 2) * Math.PI * 0.5)) * 1.6);
+            rot = face * clamp(d.speed / 60 + d.acc / 45, -0.09, 0.11);
+          } else oy = Math.sin(time / 260 + d.slot * 1.7) > 0.6 ? 1 : 0;
           if (sad) {
             rot = face * 0.13;
             oy += 1;
@@ -1034,6 +1137,30 @@ export class FootballScene extends Phaser.Scene {
         sy = 1 - charge * 0.05;
         if (charge >= 1) X += Math.round(Math.sin(time / 25));
       }
+      // a quick squash as he turns round
+      const turn = (time - d.turnAt) / 1000;
+      if (turn < 0.08 && act !== FbAction.Celebrate && act !== FbAction.Skill) {
+        const q = 1 - turn / 0.08;
+        sx *= 1 - 0.12 * q;
+        sy *= 1 + 0.04 * q;
+      }
+      // ease between poses (into a slide, back up after it, out of a kick) instead of popping; the big spins
+      // (a celebration twirl, a skill move, a dive) are shown as they are
+      if (act === FbAction.Celebrate || act === FbAction.Skill || act === FbAction.Dive || act === FbAction.Kneel || Math.abs(rot - d.rot) > 1.5) {
+        d.rot = rot;
+        d.oy = oy;
+      } else {
+        const k = 1 - Math.exp(-dt * (act === FbAction.Slide || act === FbAction.Kick ? 40 : 18));
+        d.rot += (rot - d.rot) * k;
+        d.oy += (oy - d.oy) * k;
+      }
+      const ks = 1 - Math.exp(-dt * 30);
+      d.sx += (sx - d.sx) * ks;
+      d.sy += (sy - d.sy) * ks;
+      rot = d.rot;
+      oy = Math.round(d.oy);
+      sx = d.sx;
+      sy = d.sy;
       if (xf >= 0 && d.xkey) {
         if (d.sprite.texture.key !== d.xkey) d.sprite.setTexture(d.xkey, xf);
         else d.sprite.setFrame(xf);
@@ -1087,10 +1214,20 @@ export class FootballScene extends Phaser.Scene {
     // ball (at the predicted feet when this phone's duck has it)
     {
       let [x, y, z] = pose.ball;
+      // with this phone's duck the ball sits at its predicted feet; when it leaves them (a shot, a pass, a tackle)
+      // or arrives, that offset eases out / in, so the ball never hops back to where the duck was ~100 ms ago
+      let tox = 0;
+      let toy = 0;
       if (pr && pose.owner === mySlot && pose.p.length > mySlot * 4 + 1) {
-        x += pr.x - pose.p[mySlot * 4];
-        y += pr.y - pose.p[mySlot * 4 + 1];
+        tox = pr.x - pose.p[mySlot * 4];
+        toy = pr.y - pose.p[mySlot * 4 + 1];
       }
+      const kOff = 1 - Math.exp(-dt * (tox || toy ? 16 : 7));
+      this.ballOff[0] += (tox - this.ballOff[0]) * kOff;
+      this.ballOff[1] += (toy - this.ballOff[1]) * kOff;
+      if (Math.hypot(this.ballOff[0], this.ballOff[1]) > 4) this.ballOff = [tox, toy];
+      x += this.ballOff[0];
+      y += this.ballOff[1];
       const od = pose.owner >= 0 ? this.ducks[pose.owner] : undefined;
       if (od && z < 0.2) {
         const face = od.sprite.flipX ? -1 : 1;

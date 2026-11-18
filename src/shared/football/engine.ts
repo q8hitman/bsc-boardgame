@@ -26,8 +26,8 @@ export const TUNE = {
   sprintBall: 7.2,
   keeperSpeed: 6.3,
   /** snappy at a jog, heavy (wide turns) at a sprint (m/s²) */
-  accel: 34,
-  accelSprint: 13,
+  accel: 36,
+  accelSprint: 19,
   /** stamina 0..1: a full bar is ~5 s of sprint, it refills in ~6 s; after running dry it must get back to `tiredUntil` */
   staminaDrain: 0.2,
   staminaRecover: 1 / 6,
@@ -76,18 +76,33 @@ export const TUNE = {
   netGive: 0.35,
   /** seconds of holding b for a full-power shot */
   chargeTime: 0.9,
-  slideSpeed: 9.5,
-  slideTime: 0.45,
-  slideCooldown: 1.2,
-  slideReach: 1.0,
-  fallTime: 0.6,
+  slideSpeed: 10,
+  slideTime: 0.4,
+  slideCooldown: 1.1,
+  slideReach: 1.05,
+  /** a person's slide bends towards a ball carrier this close in front (aim assist), within this angle (cos) */
+  slideAssistR: 3.5,
+  slideAssistCos: 0.7,
+  /** and while sliding it turns towards the ball close ahead at up to this rate (rad/s) */
+  slideTurn: 3.2,
+  /** a slide that wins the ball: the slider keeps it and is up this quickly (s of slide left at most) */
+  slideWinRest: 0.1,
+  /** getting up after a slide that missed */
+  slideRecover: 0.28,
+  fallTime: 0.5,
+  /** a carrier moving away from a defender behind him shields the ball: pokes from behind are this much rarer */
+  shieldFactor: 0.4,
+  /** braking / turning back is quicker than speeding up (multiplier on accel when the stick points against the run) */
+  brakeFactor: 1.7,
+  /** a tapped shot still has this much power (0..1); holding fills the rest */
+  shotTapPower: 0.28,
   /** standing tackle: an opponent this close to the ball can poke it away (rate per second, scaled by skill) */
   pokeR: 0.8,
   pokeRate: 2.2,
   /** a fresh owner can't be poked for this long */
-  pokeGrace: 0.35,
+  pokeGrace: 0.4,
   /** poke rate multiplier when the ball runs into the defender's body */
-  blockFactor: 3,
+  blockFactor: 2.5,
   kickoffFreeze: 1.2,
   /** after the freeze, the kick-off waits up to this long for everybody to walk back to their spot */
   kickoffWalk: 2.5,
@@ -712,10 +727,15 @@ export class FbEngine {
       d.vy *= 0.8;
     } else if (d.slide > 0) {
       d.slide -= dt;
-      const k = Math.max(0.25, d.slide / TUNE.slideTime);
+      // a person's slide homes in a little on the ball ahead (a dodge can still beat it)
+      if (this.ctrlBy[d.slot]) this.slideHome(d, dt);
+      // fast off the mark, easing out along the grass (no sudden stop)
+      const u = clamp(d.slide / TUNE.slideTime, 0, 1);
+      const k = Math.max(0.22, u * (1.15 - 0.15 * u));
       d.vx = d.sdx * TUNE.slideSpeed * k;
       d.vy = d.sdy * TUNE.slideSpeed * k;
-      if (d.slide <= 0) d.lock = 0.22;
+      // up again: at once with the ball, quickly after poking it loose, slower after a miss
+      if (d.slide <= 0) d.lock = this.ball.owner === d.slot ? 0 : this.ball.last === d.slot && this.ball.owner < 0 ? 0.08 : TUNE.slideRecover;
     } else if (d.dive > 0) {
       d.dive -= dt;
       d.vx = d.dvx;
@@ -723,8 +743,9 @@ export class FbEngine {
       if (d.dive <= 0) d.lock = 0.35;
     } else if (d.lock > 0) {
       d.lock -= dt;
-      d.vx *= 0.7;
-      d.vy *= 0.7;
+      const f = Math.pow(0.7, dt * 30);
+      d.vx *= f;
+      d.vy *= f;
     } else if (d.trick > 0) {
       // skill move: a sharp burst to the side / round, the ball glued to the feet
       d.trick -= dt;
@@ -751,7 +772,8 @@ export class FbEngine {
           wy = (dy / dist) * k;
         }
         ability = 0.95 + 0.05 * d.skill;
-        want = d.wantSprint && this.stage === "play";
+        // a sprint in play, and team-mates racing to the hero to celebrate
+        want = d.wantSprint && (this.stage === "play" || (this.stage !== "kickoff" && hyp(d.tx - d.x, d.ty - d.y) > 2.5));
       }
       if (want && !d.gk && !d.tired && d.stamina > 0 && hyp(wx, wy) > 0.5 && d.trap <= 0) {
         d.sprinting = true;
@@ -773,7 +795,9 @@ export class FbEngine {
       const ax = tvx - d.vx;
       const ay = tvy - d.vy;
       const am = hyp(ax, ay);
-      const maxA = (d.sprinting ? TUNE.accelSprint : d.dash > 0 ? TUNE.accel * 2 : TUNE.accel) * dt;
+      let maxA = (d.sprinting ? TUNE.accelSprint : d.dash > 0 ? TUNE.accel * 2 : TUNE.accel) * dt;
+      // stopping / turning back bites harder than speeding up: tight, responsive changes of direction
+      if (tvx * d.vx + tvy * d.vy < 0 || hyp(tvx, tvy) < hyp(d.vx, d.vy) - 0.5) maxA *= TUNE.brakeFactor;
       if (am > maxA) {
         d.vx += (ax / am) * maxA;
         d.vy += (ay / am) * maxA;
@@ -808,6 +832,7 @@ export class FbEngine {
   }
 
   private computerDrive(d: Duck, dt: number) {
+    if (this.stage !== "play") d.wantSprint = false;
     if (this.stage === "goal" && this.lastGoal) {
       const g = this.lastGoal;
       const back = this.spot(d, (1 - g.team) as FbTeam);
@@ -893,6 +918,7 @@ export class FbEngine {
     d.tx = h.x + Math.cos(a) * 1.05;
     d.ty = h.y + Math.sin(a) * 1.05;
     d.run = 1;
+    d.wantSprint = !d.gk && hyp(d.tx - d.x, d.ty - d.y) > 2.5;
     d.celebrate = hyp(d.x - h.x, d.y - h.y) < 2.6;
   }
 
@@ -927,7 +953,10 @@ export class FbEngine {
         o.wantBy = d.slot;
         o.wantUntil = this.time + 1.5;
         o.think = 0;
-      } else if (d.slideCd <= 0) this.slideStart(d, d.hx, d.hy);
+      } else if (d.slideCd <= 0) {
+        const [ax, ay] = this.slideAim(d, d.hx, d.hy);
+        this.slideStart(d, ax, ay);
+      }
     }
     if (p.kDown) {
       p.kDown = false;
@@ -946,9 +975,11 @@ export class FbEngine {
     if (p.bUp) {
       p.bUp = false;
       if (d.charge >= 0 && (mine || this.nearBall(d, 1.2))) {
-        const bend = Math.abs(jy) > 0.25 ? jy : 0;
-        const aim = bend ? jy * 3.1 : this.autoAim(d);
-        this.shoot(d, d.charge, aim, 0.75, bend);
+        // the stick across the goal picks the corner (and curls it a little); no stick: the open corner
+        const bend = Math.abs(jy) > 0.25 ? jy * 0.7 : 0;
+        const aim = Math.abs(jy) > 0.25 ? clamp(jy * 3.2, -2.9, 2.9) : this.autoAim(d);
+        const power = TUNE.shotTapPower + (1 - TUNE.shotTapPower) * d.charge;
+        this.shoot(d, power, aim, 0.6, bend, true);
       }
       d.charge = -1;
     }
@@ -976,9 +1007,10 @@ export class FbEngine {
       const dist = hyp(vx, vy);
       if (dist < 2) continue;
       const cos = (vx * dx + vy * dy) / dist;
-      if (cos < 0.6) continue;
+      // a forgiving cone (a thumb on a phone is not precise): the stick picks the side, the open mate wins
+      if (cos < 0.42) continue;
       const risk = this.laneRisk(d, m.x, m.y);
-      const sc = cos * 3 - dist * 0.04 - (risk < 1.2 ? 1.2 : 0) - (m.gk ? 1 : 0);
+      const sc = cos * 3 - dist * 0.04 - (risk < 1.2 ? 1.2 : risk < 2 ? 0.4 : 0) - (m.gk ? 1 : 0);
       if (sc > bs) {
         bs = sc;
         best = m.slot;
@@ -1075,14 +1107,15 @@ export class FbEngine {
   }
   /** shot at the goal this duck attacks: power 0..1, aimY across the mouth, spread multiplier, bend -1..1 (the ball
    *  starts off line and curls in towards aimY). Strong shots are much faster and dip; weak ones are slow and low. */
-  shoot(d: Duck, power: number, aimY: number, spread = 1, bend = 0) {
+  shoot(d: Duck, power: number, aimY: number, spread = 1, bend = 0, person = false) {
     const b = this.ball;
     if (b.owner >= 0 && b.owner !== d.slot) return;
     const side = this.stage === "pen" && this.pen ? this.pen.side : this.dir(d.team);
     const gx = side * HALF_L;
     power = clamp(power, 0, 1);
     const dist = hyp(gx - b.x, aimY - b.y);
-    const sigma = (0.3 + power * power * 0.8 + dist * 0.022 + (1 - d.skill) * 0.35) * spread;
+    // a person's shot goes where they asked a bit more reliably (power still costs some accuracy)
+    const sigma = (0.3 + power * power * (person ? 0.5 : 0.8) + dist * 0.022 + (1 - d.skill) * (person ? 0.15 : 0.35)) * spread;
     const gy = aimY + this.gauss() * sigma;
     const sp = TUNE.shotMin + (TUNE.shotMax - TUNE.shotMin) * Math.pow(power, 1.6);
     const t = dist / (sp * 0.85);
@@ -1093,8 +1126,11 @@ export class FbEngine {
     dx /= m;
     dy /= m;
     const vz = 0.5 + power * power * 3.4 + this.rng() * 1.2 * power;
-    const bx = b.owner === d.slot ? d.x + dx * 0.6 : b.x;
-    const by = b.owner === d.slot ? d.y + dy * 0.6 : b.y;
+    // struck from where the ball is (at his feet), not teleported round him: a ball behind the line of the shot
+    // is nudged only a little towards the strike side
+    const own = b.owner === d.slot;
+    const bx = own ? b.x * 0.5 + (d.x + dx * 0.5) * 0.5 : b.x;
+    const by = own ? b.y * 0.5 + (d.y + dy * 0.5) * 0.5 : b.y;
     this.release(d, bx, by);
     b.z = Math.max(b.z, 0.05);
     b.vx = dx * sp;
@@ -1202,6 +1238,15 @@ export class FbEngine {
     d.dashCd = TUNE.dashCooldown;
     d.stamina -= TUNE.dashCost;
   }
+  /** the slide got the ball: he keeps it at his feet, the slide eases out quickly and he gets up running */
+  private slideWin(d: Duck) {
+    d.hx = d.sdx;
+    d.hy = d.sdy;
+    d.noPick = 0;
+    d.slide = Math.min(d.slide, TUNE.slideWinRest);
+    this.take(d);
+    d.hasT = 0;
+  }
   /** a tackler is beaten by a skill move: he stumbles */
   private beaten(d: Duck) {
     d.slide = 0;
@@ -1209,6 +1254,41 @@ export class FbEngine {
     d.noPick = TUNE.stumble;
     d.vx *= 0.3;
     d.vy *= 0.3;
+  }
+  /** during a person's slide: turn it towards the ball by at most slideTurn rad/s while the ball is close ahead */
+  private slideHome(d: Duck, dt: number) {
+    const b = this.ball;
+    if (b.z > 0.6 || (b.owner >= 0 && this.ducks[b.owner].team === d.team)) return;
+    const tx = b.x - d.x;
+    const ty = b.y - d.y;
+    const dist = hyp(tx, ty);
+    if (dist < 0.25 || dist > 2.6) return;
+    const cos = (tx * d.sdx + ty * d.sdy) / dist;
+    if (cos < 0.25) return;
+    const cross = d.sdx * ty - d.sdy * tx;
+    const want = Math.acos(clamp(cos, -1, 1)) * Math.sign(cross);
+    const turn = clamp(want, -TUNE.slideTurn * dt, TUNE.slideTurn * dt);
+    const c = Math.cos(turn);
+    const sn = Math.sin(turn);
+    [d.sdx, d.sdy] = [d.sdx * c - d.sdy * sn, d.sdx * sn + d.sdy * c];
+  }
+  /** a person's slide: if the ball (a carrier or a loose ball) is just ahead, bend the slide to meet it */
+  slideAim(d: Duck, dx: number, dy: number): [number, number] {
+    const b = this.ball;
+    const m = hyp(dx, dy) || 1;
+    dx /= m;
+    dy /= m;
+    const o = b.owner >= 0 ? this.ducks[b.owner] : null;
+    // where the ball will be when the slide gets there
+    const lead = 0.18;
+    // (a carried ball: at his feet, between his body and the ball)
+    const tx = (o ? o.x + o.hx * 0.3 + o.vx * lead : b.x + b.vx * lead) - d.x;
+    const ty = (o ? o.y + o.hy * 0.3 + o.vy * lead : b.y + b.vy * lead) - d.y;
+    const dist = hyp(tx, ty);
+    if (dist < 0.3 || dist > TUNE.slideAssistR || b.z > 0.6) return [dx, dy];
+    const cos = (tx * dx + ty * dy) / dist;
+    if (cos < TUNE.slideAssistCos) return [dx, dy];
+    return [tx / dist, ty / dist];
   }
   slideStart(d: Duck, dx: number, dy: number) {
     if (d.slide > 0 || d.fall > 0 || d.slideCd > 0 || d.gk) return;
@@ -1518,22 +1598,35 @@ export class FbEngine {
           o.fall = TUNE.fallTime;
           o.vx *= 0.3;
           o.vy *= 0.3;
-          b.vx = d.sdx * 4.5 + d.vx * 0.2;
-          b.vy = d.sdy * 4.5 + d.vy * 0.2;
-          b.last = d.slot;
-          b.lastTeam = d.team;
-          d.noPick = 0;
+          o.trick = 0;
           this.ev(FbEvent.Tackle, d.slot);
+          // from the front / side: a clean slide, the slider comes away with it and is straight back on his feet
+          // (no limbo with the ball rolling off and the control jumping to somebody else). From behind it only
+          // pokes the ball loose ahead of him, and he is up quickly to chase it.
+          const om = hyp(o.hx, o.hy) || 1;
+          if ((d.sdx * o.hx + d.sdy * o.hy) / om < 0.35) this.slideWin(d);
+          else {
+            b.vx = d.sdx * 4.5 + d.vx * 0.2;
+            b.vy = d.sdy * 4.5 + d.vy * 0.2;
+            b.last = d.slot;
+            b.lastTeam = d.team;
+            b.kick++;
+            d.noPick = 0;
+            d.slide = Math.min(d.slide, TUNE.slideWinRest);
+          }
         }
       } else if (b.owner < 0 && b.z < 0.5 && hyp(b.x - d.x, b.y - d.y) < TUNE.slideReach * 0.9 && d.noPick <= 0) {
-        b.vx = d.sdx * 6 + d.vx * 0.2;
-        b.vy = d.sdy * 6 + d.vy * 0.2;
-        b.last = d.slot;
-        b.lastTeam = d.team;
-        b.passTo = -1;
-        b.shot = false;
-        b.kick++;
-        d.noPick = 0.25;
+        if (hyp(b.vx - d.vx, b.vy - d.vy) > 16) {
+          // a hard shot / pass slid into: it deflects off the boot
+          b.vx = d.sdx * 6 + d.vx * 0.2;
+          b.vy = d.sdy * 6 + d.vy * 0.2;
+          b.last = d.slot;
+          b.lastTeam = d.team;
+          b.passTo = -1;
+          b.shot = false;
+          b.kick++;
+          d.noPick = 0.25;
+        } else this.slideWin(d);
         this.ev(FbEvent.Tackle, d.slot);
       }
     }
@@ -1550,7 +1643,11 @@ export class FbEngine {
         // dribbling straight into a duck's feet (the ball runs into his body) is much riskier than him reaching in
         const block = bd < TUNE.duckR + BALL_R ? TUNE.blockFactor : 1;
         const exposed = o.sprinting ? TUNE.sprintPokeFactor : 1;
-        if (this.rng() < rate * block * exposed * dt) {
+        // a carrier running away from a defender behind him keeps his body between them
+        const osp = hyp(o.vx, o.vy);
+        const behind = osp > 1.5 && ((d.x - o.x) * o.vx + (d.y - o.y) * o.vy) / osp < -0.1;
+        const shield = behind ? TUNE.shieldFactor : 1;
+        if (this.rng() < rate * block * exposed * shield * dt) {
           if (o.trick > 0) {
             // he goes for it and the skill move takes the ball away from him
             this.beaten(d);

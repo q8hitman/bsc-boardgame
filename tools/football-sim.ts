@@ -207,6 +207,36 @@ function checkWorld(e: FbEngine, bad: string[]) {
 }
 
 {
+  // a person's slide that wins the ball: no limbo. He keeps it, is up running quickly, and the control stays with him
+  const e = new FbEngine(cpuRoster(), { seed: 5, halfSeconds: 600 });
+  e.setStage("play");
+  for (const d of e.ducks) Object.assign(d, { x: d.team ? 28 : -28, y: d.slot * 3 - 14, vx: 0, vy: 0 });
+  e.addPerson("me", 0, 1);
+  const me = e.ducks[1];
+  const o = e.ducks[6];
+  Object.assign(o, { x: 2.2, y: 0.6, hx: -1, hy: 0, hasT: 5, trickCd: 99 });
+  e.ball.owner = 6;
+  // facing a little off the carrier: the aim assist bends the slide onto him
+  Object.assign(me, { x: 0, y: 0, hx: 1, hy: -0.25 });
+  e.input("me", { x: 1, y: -0.25, a: true, b: false });
+  let wonAt = -1;
+  let upAt = -1;
+  let lostCtrl = false;
+  for (let i = 0; i < 45; i++) {
+    e.step();
+    if (i === 1) e.input("me", { x: 1, y: 0, a: false, b: false });
+    if (wonAt < 0 && e.ball.owner === 1) wonAt = i * DT;
+    if (wonAt >= 0 && upAt < 0 && me.slide <= 0 && me.lock <= 0) upAt = i * DT;
+    if (e.control().me !== 1) lostCtrl = true;
+  }
+  ok(wonAt >= 0 && wonAt < 0.4, `slide: a slide at a carrier just off line wins the ball (at ${wonAt.toFixed(2)} s)`);
+  ok(e.ball.owner === 1, "slide: the slider keeps the ball afterwards (it doesn't roll away)");
+  ok(upAt >= 0 && upAt - wonAt <= 0.17, `slide: back on his feet ${(upAt - wonAt).toFixed(2)} s after winning it`);
+  ok(!lostCtrl, "slide: the control never jumps to another duck");
+  ok(Math.hypot(me.vx, me.vy) > 3, `slide: running with it straight after (${Math.hypot(me.vx, me.vy).toFixed(1)} m/s)`);
+}
+
+{
   // a skill move beats a slide tackle and a standing tackle; without it the tackle wins the ball
   const duel = (trick: boolean, slide: boolean) => {
     const e = new FbEngine(cpuRoster(), { seed: 21, halfSeconds: 600 });
