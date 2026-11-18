@@ -1,28 +1,24 @@
 import type { FbInput } from "../../../shared/football/types";
+import { ACTS, bindKey, bindPad, keyLabel, loadBindings, resetBindings, saveBindings, type Act, type Bindings } from "./bindings";
 
 /** The player's controls, three ways at once:
  *  - touch: a floating joystick on the left half (it appears where the thumb lands); on the right two big buttons
  *    (A pass/slide, B shoot/switch), a sprint button held next to them, and a small skill button while you have the ball;
  *  - keyboard (a computer: no on-screen controls, a key legend instead): WASD / arrows move, Space or J = A,
  *    K or L = B, Shift = sprint, E or ; = skill, H = show / hide the legend;
- *  - a gamepad: left stick / d-pad, A = A, B = B, X = A, RB / RT = sprint, Y = skill.
+ *  - a gamepad (any connected one, the last used wins): left stick / d-pad, A = A, B = B, X = A, RB / RT = sprint,
+ *    Y = skill.
+ *  Keys and pad buttons can be changed in the legend (click an action, press the new key / button; Esc cancels) and
+ *  are remembered on this device (bindings.ts).
  *  Sends FbInput on every change and every 200 ms while something is held; button edges go out at once, stick
  *  movement at most every 40 ms. A press always goes out as "true" at least once, however short the tap. */
 const RESEND = 200;
 const MIN_GAP = 40;
 const CHARGE_MS = 1000;
 type Btn = "a" | "b" | "s" | "k";
-const KEYS: Record<string, Btn> = {
-  Space: "a",
-  KeyJ: "a",
-  KeyK: "b",
-  KeyL: "b",
-  ShiftLeft: "s",
-  ShiftRight: "s",
-  KeyE: "k",
-  Semicolon: "k",
-};
-const MOVE = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD"];
+const BTNS: Btn[] = ["a", "b", "s", "k"];
+const isBtn = (a: Act | undefined): a is Btn => a === "a" || a === "b" || a === "s" || a === "k";
+const isDir = (a: Act | undefined) => a === "up" || a === "down" || a === "left" || a === "right";
 
 /** a touch screen (a phone / tablet) rather than a mouse and keyboard */
 export const isTouch = () => {
@@ -67,6 +63,12 @@ export class FootballControls {
   readonly touch: boolean;
   private legendShown = true;
   private legendTimer = 0;
+  /** keys / pad buttons -> actions (changeable) and the action waiting for its new key (null = not rebinding) */
+  private bind: Bindings = loadBindings();
+  private rebind: Act | null = null;
+  /** pad buttons held at the last poll (a rebind takes the first newly pressed one) */
+  private padPrev = new Set<number>();
+  private padName = "";
 
   constructor(root: HTMLElement, private big: boolean) {
     this.touch = isTouch();
@@ -81,14 +83,7 @@ export class FootballControls {
         <button class="fbb s" type="button"><span class="k">»</span><b>ركض</b></button>
         <button class="fbb k" type="button"><span class="k">★</span><b>حركة</b></button>
       </div>
-      <div class="fb-keys" dir="rtl">
-        <div class="kt">المفاتيح <i>H</i></div>
-        <div class="kr"><span><i>W</i><i>A</i><i>S</i><i>D</i> / <i>←↑↓→</i></span><b>حركة</b></div>
-        <div class="kr"><span><i class="w">Shift</i></span><b>ركض سريع</b></div>
-        <div class="kr"><span><i class="w">Space</i> / <i>J</i></span><b class="la">تمرير · زحلقة</b></div>
-        <div class="kr"><span><i>K</i> / <i>L</i></span><b class="lb">تسديد (اضغط مطوّل) · بدّل</b></div>
-        <div class="kr"><span><i>E</i> / <i>;</i></span><b>حركة مهارية</b></div>
-      </div>`;
+      <div class="fb-keys" dir="rtl"></div>`;
     root.appendChild(this.el);
     this.zone = this.el.querySelector(".joyzone")!;
     this.base = this.el.querySelector(".joy")!;
@@ -101,6 +96,20 @@ export class FootballControls {
     };
     this.ring = this.el.querySelector(".fbb.b circle")!;
     this.legend = this.el.querySelector(".fb-keys")!;
+    this.renderLegend();
+    // click an action to give it a new key / pad button
+    this.legend.addEventListener("click", (e) => {
+      const t = e.target as HTMLElement;
+      if (t.closest(".reset")) {
+        this.bind = resetBindings();
+        this.rebind = null;
+        return this.renderLegend();
+      }
+      const row = t.closest<HTMLElement>("[data-act]");
+      if (!row) return;
+      this.rebind = this.rebind === row.dataset.act ? null : (row.dataset.act as Act);
+      this.renderLegend();
+    });
 
     this.zone.addEventListener("pointerdown", this.joyDown);
     this.el.addEventListener("pointermove", this.joyMove);
@@ -138,8 +147,39 @@ export class FootballControls {
       if (e.pointerId === this.joy.id) this.joyUp(e);
     });
     addEventListener("gamepadconnected", this.padStart);
+    addEventListener("gamepaddisconnected", this.padGone);
     if (navigator.getGamepads?.().some(Boolean)) this.padStart();
   }
+
+  /** the legend: one row per action with its keys (and pad buttons); the row being rebound waits for a key */
+  private renderLegend() {
+    const keysOf = (a: Act) => Object.keys(this.bind.keys).filter((k) => this.bind.keys[k] === a);
+    const padOf = (a: Act) => Object.keys(this.bind.pad).map(Number).filter((k) => this.bind.pad[k] === a);
+    const PADN: Record<number, string> = { 0: "A", 1: "B", 2: "X", 3: "Y", 4: "LB", 5: "RB", 6: "LT", 7: "RT", 8: "Back", 9: "Start", 10: "L3", 11: "R3", 12: "D↑", 13: "D↓", 14: "D←", 15: "D→" };
+    const chip = (t: string) => `<i class="${t.length > 2 ? "w" : ""}">${t.replace(/</g, "&lt;")}</i>`;
+    const dirs = ACTS.filter((a) => isDir(a.act));
+    const moveRow = `<div class="kr dirs"><span>${dirs
+      .map((d) => `<em data-act="${d.act}" class="${this.rebind === d.act ? "wait" : ""}">${this.rebind === d.act ? chip("…") : chip(keyLabel(keysOf(d.act)[0] ?? "?"))}</em>`)
+      .join("")}</span><b>حركة</b></div>`;
+    const rows = ACTS.filter((a) => !isDir(a.act))
+      .map((a) => {
+        const ks = keysOf(a.act).map((k) => chip(keyLabel(k))).join(" / ");
+        const ps = this.padName ? padOf(a.act).map((b) => chip(PADN[b] ?? String(b))).join("") : "";
+        const label = a.act === "a" ? "تمرير (مطوّل = طويلة / عرضية) · زحلقة" : a.act === "b" ? "تسديد (اضغط مطوّل) · بدّل" : a.name;
+        return `<div class="kr${this.rebind === a.act ? " wait" : ""}" data-act="${a.act}"><span>${this.rebind === a.act ? "اضغط مفتاح أو زر…" : ks}${ps ? ` <small>${ps}</small>` : ""}</span><b class="l${a.act}">${label}</b></div>`;
+      })
+      .join("");
+    this.legend.innerHTML = `<div class="kt">المفاتيح <i>H</i></div>${moveRow}${rows}<div class="kf">${
+      this.padName ? `🎮 ${this.padName.slice(0, 26).replace(/</g, "&lt;")} · ` : ""
+    }اضغط أي سطر عشان تغيّر مفتاحه · <u class="reset">افتراضي</u></div>`;
+  }
+
+  private padGone = () => {
+    if (!navigator.getGamepads?.().some((g) => g && g.connected)) {
+      this.padName = "";
+      this.renderLegend();
+    }
+  };
 
   private onVis = () => {
     if (document.hidden) this.releaseAll();
@@ -167,8 +207,10 @@ export class FootballControls {
     this.els.a.querySelector("b")!.textContent = pass;
     this.els.b.querySelector("b")!.textContent = shoot;
     this.el.classList.toggle("attack", !!team);
-    this.el.querySelector(".la")!.textContent = team ? "تمرير (مطوّل = كورة طويلة / عرضية)" : "زحلقة";
-    this.el.querySelector(".lb")!.textContent = team ? "تسديد (اضغط مطوّل)" : "بدّل اللاعب";
+    const la = this.el.querySelector(".la");
+    const lb = this.el.querySelector(".lb");
+    if (la) la.textContent = team ? "تمرير (مطوّل = طويلة / عرضية)" : "زحلقة";
+    if (lb) lb.textContent = team ? "تسديد (اضغط مطوّل)" : "بدّل اللاعب";
   }
 
   /** the key legend: shown at first, fades a while after you start playing (H brings it back) */
@@ -189,9 +231,13 @@ export class FootballControls {
   }
 
   private keyVec(): [number, number] {
-    const k = this.keys;
-    const x = (k.has("ArrowRight") || k.has("KeyD") ? 1 : 0) - (k.has("ArrowLeft") || k.has("KeyA") ? 1 : 0);
-    const y = (k.has("ArrowDown") || k.has("KeyS") ? 1 : 0) - (k.has("ArrowUp") || k.has("KeyW") ? 1 : 0);
+    const held = new Set<Act>();
+    for (const c of this.keys) {
+      const a = this.bind.keys[c];
+      if (a) held.add(a);
+    }
+    const x = (held.has("right") ? 1 : 0) - (held.has("left") ? 1 : 0);
+    const y = (held.has("down") ? 1 : 0) - (held.has("up") ? 1 : 0);
     const l = Math.hypot(x, y) || 1;
     return [x / l, y / l];
   }
@@ -357,12 +403,26 @@ export class FootballControls {
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
     const c = e.code;
+    if (this.rebind) {
+      // waiting for a new key: this one is it (Esc cancels)
+      e.preventDefault();
+      e.stopPropagation();
+      if (c !== "Escape" && c !== "KeyH") {
+        this.releaseAll();
+        this.bind = bindKey(this.bind, this.rebind, c);
+        saveBindings(this.bind);
+      }
+      this.rebind = null;
+      this.renderLegend();
+      return;
+    }
     if (c === "KeyH") {
       if (!e.repeat) this.showLegend(!this.legendShown);
       return;
     }
-    const move = MOVE.includes(c);
-    const b = KEYS[c];
+    const act = this.bind.keys[c];
+    const move = isDir(act);
+    const b = isBtn(act) ? act : undefined;
     if (!move && !b) return;
     // these keys belong to the game: no page scrolling, no clicking a focused button with Space
     e.preventDefault();
@@ -380,11 +440,12 @@ export class FootballControls {
   private keyUp = (e: KeyboardEvent) => {
     const c = e.code;
     let hit = this.keys.delete(c);
-    const b = KEYS[c];
+    const act = this.bind.keys[c];
+    const b = isBtn(act) ? act : undefined;
     if (b) {
       this.bkeys.delete(c);
       // e.g. both Shift keys: the button is up when neither is held
-      const other = [...this.bkeys].some((k) => KEYS[k] === b);
+      const other = [...this.bkeys].some((k) => this.bind.keys[k] === b);
       if (!other) {
         hit = hit || this.btn[b].key;
         this.btn[b].key = false;
@@ -407,7 +468,13 @@ export class FootballControls {
     if (this.padRaf) return;
     const poll = () => {
       this.padRaf = requestAnimationFrame(poll);
-      const gp = navigator.getGamepads?.().find((g) => g && g.connected);
+      // every connected pad; the one used most recently drives (two pads never fight)
+      const pads = (navigator.getGamepads?.() ?? []).filter((g): g is Gamepad => !!g && g.connected);
+      const gp = pads.sort((p, q) => q.timestamp - p.timestamp)[0];
+      if (gp && gp.id !== this.padName) {
+        this.padName = gp.id;
+        this.renderLegend();
+      }
       if (!gp) {
         if (this.pad.on) {
           this.pad = { x: 0, y: 0, on: false };
@@ -417,6 +484,22 @@ export class FootballControls {
         return;
       }
       const B = (i: number) => !!gp.buttons[i]?.pressed;
+      // rebinding: the first newly pressed button takes the action
+      const now = new Set<number>();
+      gp.buttons.forEach((b, i) => b.pressed && now.add(i));
+      if (this.rebind) {
+        const fresh = [...now].find((i) => !this.padPrev.has(i));
+        if (fresh !== undefined) {
+          this.bind = bindPad(this.bind, this.rebind, fresh);
+          saveBindings(this.bind);
+          this.rebind = null;
+          this.renderLegend();
+        }
+        this.padPrev = now;
+        return;
+      }
+      this.padPrev = now;
+      const P = (a: Act) => Object.keys(this.bind.pad).some((k) => this.bind.pad[+k] === a && B(+k));
       let x = gp.axes[0] ?? 0;
       let y = gp.axes[1] ?? 0;
       const m = Math.hypot(x, y);
@@ -426,8 +509,8 @@ export class FootballControls {
         x = (x / m) * v;
         y = (y / m) * v;
       }
-      const dx = (B(15) ? 1 : 0) - (B(14) ? 1 : 0);
-      const dy = (B(13) ? 1 : 0) - (B(12) ? 1 : 0);
+      const dx = (P("right") ? 1 : 0) - (P("left") ? 1 : 0);
+      const dy = (P("down") ? 1 : 0) - (P("up") ? 1 : 0);
       if (dx || dy) {
         const l = Math.hypot(dx, dy);
         x = dx / l;
@@ -435,12 +518,12 @@ export class FootballControls {
       }
       x = Math.round(x * 20) / 20;
       y = Math.round(y * 20) / 20;
-      const next = { a: B(0) || B(2), b: B(1), s: B(5) || B(7), k: B(3) };
+      const next = { a: P("a"), b: P("b"), s: P("s"), k: P("k") };
       let diff = x !== this.pad.x || y !== this.pad.y;
-      for (const id of ["a", "b", "s", "k"] as Btn[]) if (this.btn[id].pad !== next[id]) diff = true;
+      for (const id of BTNS) if (this.btn[id].pad !== next[id]) diff = true;
       if (!diff) return;
       this.pad = { x, y, on: true };
-      for (const id of ["a", "b", "s", "k"] as Btn[]) this.btn[id].pad = next[id];
+      for (const id of BTNS) this.btn[id].pad = next[id];
       if (this.cb) this.firstKey();
       this.changed();
     };
@@ -471,6 +554,7 @@ export class FootballControls {
     removeEventListener("keyup", this.keyUp, true);
     removeEventListener("blur", this.releaseAll);
     removeEventListener("gamepadconnected", this.padStart);
+    removeEventListener("gamepaddisconnected", this.padGone);
     document.removeEventListener("visibilitychange", this.onVis);
     this.el.remove();
   }
