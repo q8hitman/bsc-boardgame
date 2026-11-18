@@ -72,6 +72,8 @@ export const TUNE = {
   /** holding the pass button at least this long (s) makes it a lofted through ball / a cross; it goes by itself at passAuto */
   lobHold: 0.22,
   passAuto: 0.55,
+  /** a ball landing from the air keeps this much of its pace (grass takes the rest) */
+  landDamp: 0.72,
   /** the ball at the feet follows the boot on a spring (1/s): it swings round on a turn instead of being nailed on */
   dribbleSpring: 16,
   /** the ball more than this far from where the boot wants it (m) is no longer his */
@@ -371,7 +373,7 @@ export class FbEngine {
     { has: false, chaser: -1, presser: -1, cover: -1 },
   ];
   /** predicted loose-ball positions every 0.1 s for 2.5 s */
-  path: { x: number; y: number }[] = [];
+  path: { x: number; y: number; z: number }[] = [];
   rng: () => number;
 
   constructor(public roster: FbPlayer[], opts: { seed?: number; halfSeconds: number; skill?: (p: FbPlayer) => number }) {
@@ -663,18 +665,37 @@ export class FbEngine {
     if (b.owner < 0) {
       let x = b.x;
       let y = b.y;
+      let z = b.z;
       let vx = b.vx;
       let vy = b.vy;
+      let vz = b.vz;
+      const h = 0.1 / 3;
       for (let i = 0; i < 25; i++) {
         for (let k = 0; k < 3; k++) {
-          const sp = hyp(vx, vy);
-          if (sp > 0) {
-            const ns = Math.max(0, sp - (TUNE.rollA + TUNE.rollB * sp) * (0.1 / 3));
-            vx *= ns / sp;
-            vy *= ns / sp;
+          if (z > 0 || vz > 0) {
+            // in the air: gravity, a little drag; a hard landing bounces and loses pace
+            vz -= TUNE.gravity * h;
+            z += vz * h;
+            vx *= 1 - 0.1 * h;
+            vy *= 1 - 0.1 * h;
+            if (z <= 0) {
+              z = 0;
+              if (vz < -1.5) {
+                vz = -vz * 0.5;
+                vx *= TUNE.landDamp;
+                vy *= TUNE.landDamp;
+              } else vz = 0;
+            }
+          } else {
+            const sp = hyp(vx, vy);
+            if (sp > 0) {
+              const ns = Math.max(0, sp - (TUNE.rollA + TUNE.rollB * sp) * h);
+              vx *= ns / sp;
+              vy *= ns / sp;
+            }
           }
-          x += vx * (0.1 / 3);
-          y += vy * (0.1 / 3);
+          x += vx * h;
+          y += vy * h;
           if (Math.abs(y) > HALF_W - BALL_R) {
             y = Math.sign(y) * (HALF_W - BALL_R);
             vy = -vy * TUNE.boardRest;
@@ -684,7 +705,7 @@ export class FbEngine {
             vx = -vx * TUNE.boardRest;
           }
         }
-        this.path.push({ x, y });
+        this.path.push({ x, y, z });
       }
     }
     const ownerTeam = b.owner >= 0 ? this.ducks[b.owner].team : -1;
@@ -730,6 +751,7 @@ export class FbEngine {
     const sp = d.gk ? TUNE.keeperSpeed : d.stamina > 0.25 && !d.tired ? TUNE.sprintSpeed * 0.92 : TUNE.jogSpeed;
     for (let i = 0; i < this.path.length; i++) {
       const p = this.path[i];
+      if (p.z > (d.gk ? 2.2 : 0.9)) continue;
       const t = (i + 1) * 0.1;
       if (hyp(p.x - d.x, p.y - d.y) - TUNE.pickupR <= sp * t + 0.2) return { t, x: p.x, y: p.y };
     }
@@ -1017,7 +1039,7 @@ export class FbEngine {
           const px = m >= 0.3 ? jx : d.hx;
           const py = m >= 0.3 ? jy : d.hy;
           if (p.aT >= TUNE.lobHold) this.through(d, px, py);
-          else this.pass(d, this.pickPass(d, px, py), 0.02, px, py);
+          else this.pass(d, this.pickPass(d, px, py, 26), 0.02, px, py);
           p.aT = -1;
         }
       }
@@ -1058,8 +1080,11 @@ export class FbEngine {
     return d.y > 0 ? -2.4 : 2.4;
   }
 
-  /** best team-mate for a pass in direction (dx, dy); -1 = into space that way */
-  pickPass(d: Duck, dx: number, dy: number): number {
+  /** the team-mate a pass along (dx, dy) is meant for; -1 = nobody that way (into space). The stick decides: the
+   *  mate closest to its direction wins, and distance / a blocked lane only break near-ties (a few degrees), so the
+   *  game never swaps the player's choice for "a better option" somewhere else. Any direction (back, square,
+   *  across the whole pitch) works; `maxDist` limits a short pass. */
+  pickPass(d: Duck, dx: number, dy: number, maxDist = 40): number {
     let best = -1;
     let bs = -Infinity;
     const dm = hyp(dx, dy) || 1;
@@ -1070,13 +1095,14 @@ export class FbEngine {
       const vx = m.x - d.x;
       const vy = m.y - d.y;
       const dist = hyp(vx, vy);
-      if (dist < 2) continue;
+      if (dist < 2 || dist > maxDist) continue;
       const cos = (vx * dx + vy * dy) / dist;
-      // a forgiving cone (a thumb on a phone is not precise): the stick picks the side, the open mate wins;
-      // straight down the stick is still preferred (cos weighs most)
-      if (cos < 0.2) continue;
+      // within ~70 degrees of the stick (a thumb on a phone is not precise)
+      if (cos < 0.34) continue;
+      const ang = Math.acos(clamp(cos, -1, 1));
       const risk = this.laneRisk(d, m.x, m.y);
-      const sc = cos * 3 - dist * 0.04 - (risk < 1.2 ? 1.2 : risk < 2 ? 0.4 : 0) - (m.gk ? 1 : 0);
+      // 1 rad off the stick costs 6; a lane with a defender in it ~0.6 (about 6 degrees), 10 m of distance 0.25
+      const sc = -ang * 6 - (risk < 1 ? 0.6 : risk < 1.8 ? 0.25 : 0) - dist * 0.025 - (m.gk ? 1.5 : 0);
       if (sc > bs) {
         bs = sc;
         best = m.slot;
@@ -1120,12 +1146,15 @@ export class FbEngine {
     d.charge = -1;
   }
   /** pass to a team-mate (slot >= 0, led to where he is running) or (to = -1) into space along (sx, sy) */
-  pass(d: Duck, to: number, err = 0.03, sx = d.hx, sy = d.hy) {
+  pass(d: Duck, to: number, err = 0.03, sx = d.hx, sy = d.hy, atX?: number, atY?: number, arrive = TUNE.passArrive) {
     if (this.ball.owner !== d.slot) return;
     const b = this.ball;
     let tx: number;
     let ty: number;
-    if (to >= 0) {
+    if (atX !== undefined && atY !== undefined) {
+      tx = atX;
+      ty = atY;
+    } else if (to >= 0) {
       // where he will be when the ball gets there (a few rounds: the travel time depends on the distance)
       const m = this.ducks[to];
       let t = hyp(m.x - d.x, m.y - d.y) / 15;
@@ -1137,7 +1166,7 @@ export class FbEngine {
         const ms = hyp(m.vx, m.vy) || 1;
         tx = m.x + (m.vx / ms) * lead;
         ty = m.y + (m.vy / ms) * lead;
-        t = rollTime(hyp(tx - d.x, ty - d.y), TUNE.passArrive);
+        t = rollTime(hyp(tx - d.x, ty - d.y), arrive);
       }
     } else {
       const sm = hyp(sx, sy) || 1;
@@ -1170,7 +1199,7 @@ export class FbEngine {
       vz = clamp(3 + (dist - 26) * 0.15, 3, 6.5);
       const tf = (2 * vz) / TUNE.gravity;
       sp = clamp(dist / (tf + 0.9), 12, TUNE.passMax);
-    } else sp = clamp(passSpeed(dist, TUNE.passArrive) * (1 + (this.rng() - 0.5) * err * 2), TUNE.passMin, TUNE.passMax);
+    } else sp = clamp(passSpeed(dist, arrive) * (1 + (this.rng() - 0.5) * err * 2), TUNE.passMin, TUNE.passMax);
     this.release(d, d.x + dx * 0.6, d.y + dy * 0.6);
     b.vx = dx * sp;
     b.vy = dy * sp;
@@ -1182,52 +1211,43 @@ export class FbEngine {
     d.hy = dy;
     this.ev(FbEvent.Pass, d.slot);
   }
-  /** a person's held pass: wide in the last third, a cross into the box (to a team-mate's head); elsewhere a
-   *  ball over the top into the space ahead of the team-mate running that way */
+  /** a person's held pass, along the stick, any distance (switching play across the whole pitch included):
+   *  - wide in the last third with the stick towards the box: a cross dropping at head height for a team-mate;
+   *  - a team-mate that way running forward into space: a through ball into his path;
+   *  - a team-mate that way: a firm pass to him, driven along the ground when the lane is clear and not too far,
+   *    lofted over the top when it is blocked or long;
+   *  - nobody that way: lofted into the space, for whoever gets there first. */
   through(d: Duck, sx: number, sy: number) {
     if (this.ball.owner !== d.slot) return;
     const s = this.dir(d.team);
     const sm = hyp(sx, sy) || 1;
     sx /= sm;
     sy /= sm;
-    const mates = this.ducks.filter((m) => m.team === d.team && m !== d && !m.gk && m.fall <= 0);
     const toLine = HALF_L - d.x * s;
-    if (toLine < 20 && Math.abs(d.y) > 6) {
-      // the cross: the team-mate best placed in the box, the ball dropping at head height in front of him
+    const towardsBox = sx * s > -0.2 && -Math.sign(d.y) * sy > -0.2;
+    if (toLine < 20 && Math.abs(d.y) > 6 && towardsBox) {
+      const mates = this.ducks.filter((m) => m.team === d.team && m !== d && !m.gk && m.fall <= 0);
       const inBox = mates.filter((m) => HALF_L - m.x * s < 15 && Math.abs(m.y) < 9).sort((p, q) => Math.abs(p.y) - Math.abs(q.y));
       const m = inBox[0];
       const tx = m ? m.x + m.vx * 0.7 : s * (HALF_L - PITCH.penSpot);
       const ty = m ? m.y + m.vy * 0.7 : -Math.sign(d.y) * 1.5;
       return this.lob(d, tx, ty, m ? m.slot : -1, 1.5);
     }
-    // the runner: ahead along the stick, going forward, in space
-    let best: Duck | null = null;
-    let bs = -Infinity;
-    for (const m of mates) {
-      const vx = m.x - d.x;
-      const vy = m.y - d.y;
-      const dist = hyp(vx, vy);
-      if (dist < 4) continue;
-      const cos = (vx * sx + vy * sy) / dist;
-      if (cos < 0.3) continue;
-      const fwd = (m.x - d.x) * s;
-      let open = 99;
-      for (const o of this.ducks) if (o.team !== d.team && !o.gk) open = Math.min(open, hyp(o.x - m.x, o.y - m.y));
-      const sc = cos * 2 + fwd * 0.08 + Math.min(6, open) * 0.2 + m.vx * s * 0.1 - (dist > 30 ? 1.5 : 0);
-      if (sc > bs) {
-        bs = sc;
-        best = m;
-      }
+    const to = this.pickPass(d, sx, sy);
+    if (to < 0) return this.lob(d, d.x + sx * 18, d.y + sy * 18, -1, 0);
+    const m = this.ducks[to];
+    const dist = hyp(m.x - d.x, m.y - d.y);
+    const runFwd = m.vx * s;
+    if (runFwd > 3 && (m.x - d.x) * s > -2) {
+      // through ball: into his path, about where he will be when it lands, a couple of metres beyond
+      const T = clamp(dist / 16, 0.6, 1.4);
+      const tx = m.x + m.vx * T + s * 2;
+      const ty = m.y + m.vy * T;
+      if (this.laneRisk(d, tx, ty) > 1.8 && dist < 20) return this.pass(d, to, 0.02, sx, sy, tx, ty);
+      return this.lob(d, tx, ty, to, 0);
     }
-    if (!best) {
-      // nobody that way: knock it on into the space ahead
-      return this.lob(d, d.x + sx * 16, d.y + sy * 16, -1, 0);
-    }
-    // into his path, a few metres ahead of him, towards their goal
-    const T = clamp(hyp(best.x - d.x, best.y - d.y) / 16, 0.6, 1.4);
-    const tx = best.x + best.vx * T + s * 2.5;
-    const ty = best.y + best.vy * T;
-    this.lob(d, tx, ty, best.slot, 0);
+    if (this.laneRisk(d, m.x, m.y) > 1.6 && dist < 24) return this.pass(d, to, 0.02, sx, sy, undefined, undefined, 12);
+    this.lob(d, m.x + m.vx * 0.6, m.y + m.vy * 0.6, to, 0);
   }
   /** the passer's team-mate (not the keeper) who can get to (x, y) first; -1 = nobody gets near it */
   runnerFor(d: Duck, x: number, y: number) {
@@ -1254,9 +1274,11 @@ export class FbEngine {
     const dist = Math.max(1, hyp(dx, dy));
     dx /= dist;
     dy /= dist;
-    const T = clamp(dist / 17, 0.55, 1.35);
-    // (a little air drag: the ball slows ~10% a second while up)
-    const sp = clamp(dist / (T * 0.95), 6, 26);
+    // a long ball hangs longer (a higher arc) so it drops near the receiver instead of skidding past him; a cross
+    // for a header is whipped in flatter
+    const T = arriveZ > 0 ? clamp(dist / 16, 0.6, 1.4) : clamp(dist / 12, 0.75, 2.0);
+    // (air drag: the ball slows ~10% a second while up)
+    const sp = clamp(dist / (T * (1 - 0.05 * T)), 6, 26);
     const vz = (arriveZ + 0.5 * TUNE.gravity * T * T) / T;
     this.release(d, d.x + dx * 0.6, d.y + dy * 0.6);
     b.z = 0.05;
@@ -1351,6 +1373,13 @@ export class FbEngine {
     const gx = s * HALF_L;
     const toGoal = hyp(gx - d.x, d.y);
     const p = this.ctrlBy[d.slot];
+    // the ball was meant for him and he is not in a heading position at goal: he chests / thighs it down and keeps
+    // it (a long ball arriving at chest height must not be flicked on to nobody)
+    if (b.passTo === d.slot && !(toGoal < 16 && Math.abs(d.y) < 11)) {
+      this.take(d);
+      d.trap = TUNE.trapTime * 1.5;
+      return;
+    }
     this.release(d, b.x, b.y);
     b.head = true;
     b.passTo = -1;
@@ -1541,8 +1570,8 @@ export class FbEngine {
         b.spin *= 0.5;
         if (b.vz < -1.5) {
           b.vz = -b.vz * 0.5;
-          b.vx *= 0.85;
-          b.vy *= 0.85;
+          b.vx *= TUNE.landDamp;
+          b.vy *= TUNE.landDamp;
         } else b.vz = 0;
       }
       const k = 1 - 0.1 * dt;

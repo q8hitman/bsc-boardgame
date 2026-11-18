@@ -241,19 +241,26 @@ function support(e: FbEngine, d: Duck) {
   if (carrier && carrier !== d) {
     const s = e.dir(d.team);
     const cfx = carrier.x * s;
+    // the two most advanced team-mates (not the carrier) give depth: one runs through the middle beyond their last
+    // defender, the other goes wide on the far side; with the ball wide near their goal they attack the near and
+    // far posts for the cross
+    const ahead = e.ducks.filter((m) => m.team === d.team && !m.gk && m !== carrier).sort((p, q) => q.x * s - p.x * s);
+    const idx = ahead.indexOf(d);
     const wide = Math.abs(carrier.y) > 6 && cfx > L - 20;
-    const farSide = d.role !== 3 && d.role !== 0 && Math.sign(d.y || 1) !== Math.sign(carrier.y || 1);
-    if (wide && (d.role === 3 || farSide)) {
-      const near = d.role === 3;
-      d.tx = s * (L - (near ? 6 : 8));
-      d.ty = Math.sign(carrier.y) * (near ? 1.8 : -3.2);
-    } else if (d.role === 3 || (farSide && cfx > -6)) {
-      // the deepest of their outfield ducks: run beyond him
-      let last = -L;
-      for (const o of e.ducks) if (o.team !== d.team && !o.gk) last = Math.max(last, -o.x * -s);
-      const runX = clamp(Math.max(cfx + 9, last + 2), cfx + 4, L - 5);
+    let last = -L;
+    for (const o of e.ducks) if (o.team !== d.team && !o.gk) last = Math.max(last, o.x * s);
+    const side = carrier.y >= 0 ? -1 : 1;
+    if (wide && idx <= 1) {
+      d.tx = s * (L - (idx === 0 ? 6 : 8));
+      d.ty = Math.sign(carrier.y || 1) * (idx === 0 ? 1.8 : -3.2);
+    } else if (idx === 0) {
+      const runX = clamp(Math.max(cfx + 9, last + 2), cfx + 5, L - 5);
       d.tx = s * runX;
-      d.ty = d.role === 3 ? clamp(carrier.y * 0.25 + (d.slot % 2 ? 3 : -3), -8, 8) : Math.sign(d.y || 1) * 10;
+      d.ty = clamp(carrier.y * 0.3 + side * 3, -9, 9);
+    } else if (idx === 1) {
+      const runX = clamp(cfx + 6, -L + 8, L - 7);
+      d.tx = s * runX;
+      d.ty = side * 11;
     }
   }
   const far = hyp(d.tx - d.x, d.ty - d.y);
