@@ -942,8 +942,28 @@ export class FootballScene extends Phaser.Scene {
       follow = 8;
     } else {
       const max = owner === slot ? (sprint ? TUNE.sprintBall : TUNE.jogBall) : sprint ? TUNE.sprintSpeed : TUNE.jogSpeed;
-      const tvx = ix * max;
-      const tvy = iy * max;
+      // the server's defending assist (engine personDrive): running at the other team's carrier (within 7 m, the
+      // stick within 60 degrees of him) it steers to the goal-side spot, not along the stick. Follow the server's
+      // direction there, or the duck runs one way here and is pulled back the other way (a stutter)
+      let ax = ix;
+      let ay = iy;
+      if (owner >= 0 && owner !== slot && od && me && od.team !== me.team && il >= 0.3 && !aDown) {
+        const on = this.o.newest(owner);
+        if (on) {
+          const cx = on.x - p.x;
+          const cy = on.y - p.y;
+          const cd = Math.hypot(cx, cy);
+          const sv = Math.hypot(nw.vx, nw.vy);
+          if (cd < 7 && cd > 0.2 && (ix * cx + iy * cy) / (cd * Math.min(1, il)) > 0.5 && sv > 0.5) {
+            const k = Math.min(1, il);
+            ax = (nw.vx / sv) * k;
+            ay = (nw.vy / sv) * k;
+            follow = 5;
+          }
+        }
+      }
+      const tvx = ax * max;
+      const tvy = ay * max;
       let dvx = tvx - p.vx;
       let dvy = tvy - p.vy;
       const dl = Math.hypot(dvx, dvy);

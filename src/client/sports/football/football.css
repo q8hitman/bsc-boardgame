@@ -277,9 +277,8 @@
 .fb-resume { border: 0; border-radius: 16px; padding: 12px 28px; background: #1fb85a; color: #fff; font-family: inherit; font-weight: 800; font-size: 24px; line-height: 1; box-shadow: 0 5px 0 #127a3a; cursor: pointer; touch-action: none; }
 .fb-ctrl.desk .fb-pause, .fb-ctrl.desk .fb-paused { pointer-events: auto; }
 
-/* phones: two buttons only. Sprint = push the stick out past its ring (the knob glows), the skill move = a sharp
+/* phones: A, B and a sprint button (held); the skill button shows with the ball; the skill move also = a sharp
    turn when a "!" defender leans in */
-.fb-ctrl.touch .fbb.s { display: none; }
 .joy.sprint { box-shadow: 0 0 0 4px rgba(255, 154, 42, .55), 0 0 18px rgba(255, 154, 42, .6); }
 .joy.sprint .knob { background: #ff9a2a; }
 .fbb.a.long { background: #ffb21f !important; color: #3a2400; }
@@ -287,15 +286,8 @@
 .fb-ctrl .joyhint small { display: block; font-size: .78em; opacity: .85; margin-top: .25em; }
 
 /* ---------- sprint ring round the stick, the shield / sprint tips, the "how to play" card */
-.fb-ctrl .joy .sprintring {
-  position: absolute; inset: -5%; border-radius: 50%; border: 3px dashed rgba(255, 170, 70, .7); pointer-events: none;
-}
-.fb-ctrl .joy .sprintring em {
-  position: absolute; left: 50%; top: -1.5em; transform: translateX(-50%); font-style: normal; font-weight: 800; font-size: 12px;
-  color: #ffc27a; text-shadow: 2px 2px 0 var(--ink); white-space: nowrap; direction: rtl;
-}
-.joy.sprint .sprintring { border-style: solid; border-color: #ff9a2a; box-shadow: 0 0 14px rgba(255, 154, 42, .8); }
-.joy.sprint .sprintring em { color: #fff; }
+.fb-guide .kc.s { background: #7b5cff; color: #fff; border-radius: 50%; box-shadow: 0 2px 0 #4a33b0; }
+.fbb.s.on { background: #ff9a2a; transform: translateY(3px) scale(.94); }
 .fb-help {
   position: absolute; right: calc(max(8px, env(safe-area-inset-right)) + 40px); top: calc(env(safe-area-inset-top) + 8px); width: 32px; height: 32px;
   border-radius: 50%; border: 0; background: rgba(0, 0, 0, .5); color: #ffe14a; font-weight: 800; font-size: 18px; line-height: 1; font-family: inherit; pointer-events: auto;

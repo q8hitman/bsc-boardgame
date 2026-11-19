@@ -83,14 +83,15 @@ export class FootballControls {
   private tipTimer = 0;
   private tipUntil = 0;
   private sprintTipAt = 0;
+  private tipsShown = new Set<string>();
 
   constructor(root: HTMLElement, private big: boolean) {
     this.touch = isTouch();
     this.el = document.createElement("div");
     this.el.className = `fb-ctrl hidden${big ? " big" : ""}${this.touch ? " touch" : " desk"}`;
     this.el.innerHTML = `
-      <div class="joyzone"><div class="joyhint">اسحب هني للحركة<small>لبعيد = ركض</small></div></div>
-      <div class="joy hidden"><i class="sprintring"><em>ركض »</em></i><div class="knob"></div></div>
+      <div class="joyzone"><div class="joyhint">اسحب هني للحركة<small>الركض: زر »</small></div></div>
+      <div class="joy hidden"><div class="knob"></div></div>
       <div class="btns">
         <button class="fbb a" type="button"><span class="k">A</span><b>افتك</b></button>
         <button class="fbb b" type="button"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" pathLength="100"/></svg><span class="k">B</span><b>بدّل</b></button>
@@ -235,7 +236,7 @@ export class FootballControls {
     this.el.classList.toggle("hidden", !cb);
     if (cb && !this.sprintTipAt) {
       this.sprintTipAt = window.setTimeout(() => {
-        if (this.cb) this.tip("sprint", this.touch ? "<b>»</b> للركض: اسحب العصا لبرّا الدايرة" : `<b>»</b> للركض: اضغط ${this.keyName("s")} وانت تتحرك`);
+        if (this.cb) this.tip("sprint", this.touch ? "<b>»</b> للركض: اضغط مطوّل على زر <b>»</b> اللي جنب الأزرار" : `<b>»</b> للركض: اضغط ${this.keyName("s")} وانت تتحرك`);
       }, 2500);
     }
     if (!cb) {
@@ -271,7 +272,8 @@ export class FootballControls {
 
   /** a one-time tip at the top of the pitch (each one once per device); one at a time */
   tip(key: string, html: string, ms = 4200) {
-    if (!this.cb || this.guideOpen || this.paused || performance.now() < this.tipUntil) return;
+    if (this.tipsShown.has(key) || !this.cb || this.guideOpen || this.paused || performance.now() < this.tipUntil) return;
+    this.tipsShown.add(key);
     try {
       if (localStorage.getItem(`fb-tip-${key}`)) return;
       localStorage.setItem(`fb-tip-${key}`, "1");
@@ -313,7 +315,7 @@ export class FootballControls {
     const t = this.touch;
     const K = (a: Act) => this.keyName(a);
     const move = t ? "اسحب بإصبعك بأي مكان على يسار الشاشة" : `${K("up")} ${K("left")} ${K("down")} ${K("right")} أو الأسهم`;
-    const run = t ? "اسحب العصا لبرّا الدايرة البرتقالية (تنوّر)" : `اضغط ${K("s")} وانت تتحرك`;
+    const run = t ? `اضغط مطوّل على زر <i class="kc s">»</i> وانت تتحرك` : `اضغط ${K("s")} وانت تتحرك`;
     const A = t ? `<i class="kc a">A</i>` : K("a");
     const B = t ? `<i class="kc b">B</i>` : K("b");
     const S = t ? `<i class="kc k">★</i>` : K("k");
@@ -391,8 +393,9 @@ export class FootballControls {
       y: Math.round(y * 100) / 100,
       a: this.isDown("a") || this.latch.a,
       b: this.isDown("b") || this.latch.b,
-      s: this.isDown("s") || this.joy.sprint,
-      c: this.isDown("s"),
+      s: this.isDown("s"),
+      // the lob (sprint + shoot) only from a key / pad: on a phone a held sprint button must not turn shots into lobs
+      c: this.isDown("s") && !this.btn.s.touch,
       k: this.isDown("k") || this.latch.k,
       p: false,
     };
@@ -560,13 +563,6 @@ export class FootballControls {
       this.base.style.top = `${this.joy.oy}px`;
       dx -= dx * k;
       dy -= dy * k;
-    }
-    // the thumb pushed out past the ring: flat-out sprint (no sprint button to find on a phone)
-    const sprint = l > R * 1.3;
-    if (sprint !== this.joy.sprint) {
-      this.joy.sprint = sprint;
-      this.base.classList.toggle("sprint", sprint);
-      if (sprint) buzz(6);
     }
     const m = Math.min(1, Math.hypot(dx, dy) / R);
     const ang = Math.atan2(dy, dx);
