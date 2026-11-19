@@ -1070,7 +1070,7 @@ export class FootballScene extends Phaser.Scene {
       // the side that just conceded (or lost) trudges, head down
       const sad = (this.goalTeam !== -1 && d.team !== this.goalTeam) || (over && this.result !== -1 && d.team !== this.result);
       // cadence follows the ground covered: a frame every 0.36 m jogging, longer strides flat out
-      d.phase += dist / (sad ? 0.5 : act === FbAction.Sprint ? 0.55 : 0.36);
+      d.phase += dist / (sad ? 0.5 : act === FbAction.Sprint ? 0.55 : d.speed > 2.6 ? 0.42 : 0.36);
       let X = Math.round(wx(x));
       const Y = Math.round(wy(y));
       let frame = 0;
@@ -1115,14 +1115,19 @@ export class FootballScene extends Phaser.Scene {
           }
           break;
         }
-        case FbAction.Sprint:
+        case FbAction.Sprint: {
           frame = 1 + (Math.floor(d.phase) % 4);
           xf = X_SPRINT + (Math.floor(d.phase) % 4);
-          // the sprint frames lean into it; a bounce on each stride
-          oy = -Math.round(Math.abs(Math.sin((d.phase % 2) * Math.PI * 0.5)) * 2);
+          // flat out: a strong lean, off the ground on every stride, squashed on each footfall
+          const air = Math.abs(Math.sin((d.phase % 2) * Math.PI * 0.5));
+          oy = -Math.round(air * 5);
+          rot = face * 0.15;
+          sx = 1.05 - air * 0.08;
+          sy = 0.94 + air * 0.1;
           // a puff of grass every other footfall
           if (Math.floor(d.phase) !== Math.floor(d.phase - dist / 0.55) && Math.floor(d.phase) % 2 === 0) this.dust.explode(2, X - face * 8, Y);
           break;
+        }
         case FbAction.Trap: {
           // the knee comes up to meet the ball, then settles
           frame = 0;
@@ -1210,9 +1215,19 @@ export class FootballScene extends Phaser.Scene {
         default:
           if (d.speed > 0.7 || act === FbAction.Run) {
             frame = 1 + (Math.floor(d.phase) % 4);
-            // a light bob on every stride; bursting off (or out of a turn) uses the leaning sprint strides
-            oy = -Math.round(Math.abs(Math.sin((d.phase % 2) * Math.PI * 0.5)) * 1.6);
-            if (d.acc > 12 && d.speed > 2.5 && !sad) xf = X_SPRINT + (Math.floor(d.phase) % 4);
+            const air = Math.abs(Math.sin((d.phase % 2) * Math.PI * 0.5));
+            if (d.speed > 2.6 && !sad) {
+              // a run, not a walk: the stride frames, leaning in, a hop off the ground on every step, squashed on
+              // each footfall and stretched in the air
+              xf = X_SPRINT + (Math.floor(d.phase) % 4);
+              oy = -Math.round(air * 3.5);
+              rot = face * 0.09 * Math.min(1, d.speed / 5);
+              sx = 1.04 - air * 0.06;
+              sy = 0.95 + air * 0.08;
+            } else {
+              // walking about (getting into position, trudging after a goal): the upright frames, a light bob
+              oy = -Math.round(air * 1.6);
+            }
           } else oy = Math.sin(time / 260 + d.slot * 1.7) > 0.6 ? 1 : 0;
           if (sad) oy += 1;
           if (rising) mf = M_GETUP;
