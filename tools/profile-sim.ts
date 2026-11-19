@@ -9,7 +9,7 @@ const mem = new Map<string, string>();
   key: () => null,
   length: 0,
 };
-const { recordGame, rivalOf, gameStats, totalWins, profile } = await import("../src/client/profile");
+const { recordGame, rivalOf, gameStats, totalWins, profile, saveProfile, localStats, onRecorded } = await import("../src/client/profile");
 import type { GameState, Player } from "../src/shared/types";
 
 let fails = 0;
@@ -33,15 +33,29 @@ const sportGame = (seq: number, totals: Record<string, number>, better: "high" |
 };
 
 ok(profile().id.length >= 12, "a profile id is created");
-recordGame(sportGame(10, { me: 90, ali: 70, bot: 120, noor: 95 }), "me");
+ok(profile().char === "fayzah", "a fresh profile's avatar is fayzah");
+saveProfile({ char: "tima" });
+ok(profile().char === "tima", "the avatar character is saved");
+saveProfile({ char: "nope" as string });
+ok(profile().char === "fayzah", "an unknown character reads back as fayzah");
+const heard: { gameId: string; won: boolean }[] = [];
+onRecorded((r) => heard.push(r));
+const r1 = recordGame(sportGame(10, { me: 90, ali: 70, bot: 120, noor: 95 }), "me");
+ok(r1?.gameId === "bowling" && r1.won === false, `recordGame returns what it counted (${JSON.stringify(r1)})`);
 ok(gameStats("bowling").played === 1 && gameStats("bowling").won === 0, "played 1, not won (the bot won)");
 ok(rivalOf("bbbb0000a1a1")?.w === 1 && rivalOf("bbbb0000a1a1")?.l === 0, "beat Ali");
 ok(rivalOf("cccc0000d00d")?.l === 1 && rivalOf("cccc0000d00d")?.games.bowling.l === 1, "lost to Noor (also in this game's record)");
 ok(!rivalOf(undefined), "bots have no record");
-recordGame(sportGame(10, { me: 90, ali: 70, bot: 120, noor: 95 }), "me");
+const r2 = recordGame(sportGame(10, { me: 90, ali: 70, bot: 120, noor: 95 }), "me");
+ok(r2 === null, "a game already counted returns null");
+ok(heard.length === 1, `onRecorded fired once for one counted game (${heard.length})`);
 ok(gameStats("bowling").played === 1 && rivalOf("bbbb0000a1a1")?.w === 1, "the same game is never counted twice (reload on the end screen)");
 recordGame(sportGame(22, { me: 130, ali: 130, bot: 60, noor: 100 }), "me");
 ok(gameStats("bowling").won === 1 && totalWins() === 1, "a shared first place counts as a win");
+ok(heard.length === 2 && heard[1].won === true, "onRecorded got the win");
+const ls = localStats();
+ok(ls.days.length === 1 && /^\d{4}-\d{2}-\d{2}$/.test(ls.days[0]), `today is stored once as a play day (${ls.days})`);
+ok(ls.games.bowling.played === 2 && ls.games.bowling.won === 1, "localStats has the games");
 ok(rivalOf("bbbb0000a1a1")?.w === 1 && rivalOf("bbbb0000a1a1")?.l === 0, "a tie with Ali counts for nobody");
 ok(rivalOf("cccc0000d00d")?.w === 1 && rivalOf("cccc0000d00d")?.l === 1, "Noor: 1 – 1");
 // a crafted profile id from another phone must not touch the record (it is used as an object key)
