@@ -1,4 +1,4 @@
-/** كورة البط match engine: a pure simulation stepped at a fixed dt (30 Hz). No timers, no Math.random: everything
+/** كرة البط match engine: a pure simulation stepped at a fixed dt (30 Hz). No timers, no Math.random: everything
  *  random comes from a seeded generator, so a match is deterministic given its seed and the inputs, and it runs
  *  headless as fast as the CPU allows (tools/football-sim.ts plays 3 minutes in well under a second).
  *

@@ -10,7 +10,7 @@ import { FrameBuffer, type Pose } from "./football/interp";
 import { FootballScene } from "./football/scene";
 import type { SportView, SportViewOpts } from "./view";
 
-/** كورة البط: the pixel-art pitch (Phaser), the HUD and the touch / keyboard controls.
+/** كرة البط: the pixel-art pitch (Phaser), the HUD and the touch / keyboard controls.
  *  - "screen": the projector or a phone room's whole-game view: the pitch, wide.
  *  - "personal": a phone: closer camera that leans towards the duck you control (predicted locally).
  *  - controllerOnly: no pitch at all, just the pad (joystick, two buttons, score, your duck). */

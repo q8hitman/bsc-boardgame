@@ -1,4 +1,4 @@
-/** كورة البط computer players. Called by the engine a few times a second per duck (faster for better ducks): each
+/** كرة البط computer players. Called by the engine a few times a second per duck (faster for better ducks): each
  *  call sets the duck's movement target (tx, ty, run) and may pass / shoot / slide through the engine.
  *  Shape: a 1-2-1 diamond (back, left, right, front) that slides with the ball, one presser, the nearest duck chases
  *  a loose ball, the others mark goal-side or run into space. `skill` (0..1) scales reactions, accuracy and nerve.

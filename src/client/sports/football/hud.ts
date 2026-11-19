@@ -61,7 +61,7 @@ export class FootballHud {
   update(st: FbState | undefined, phase: string) {
     this.st = st ?? null;
     if (!st) {
-      this.setPanel(phase === "intro" ? "intro" : "", phase === "intro" ? `<h2>كورة البط</h2><p>استعدوا… المباراة بتبدي</p>` : "");
+      this.setPanel(phase === "intro" ? "intro" : "", phase === "intro" ? `<h2>كرة البط</h2><p>استعدوا… المباراة بتبدي</p>` : "");
       return;
     }
     this.score.querySelector(".s0")!.textContent = ar(st.score[0]);

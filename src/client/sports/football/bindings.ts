@@ -1,4 +1,4 @@
-/** Key and gamepad-button bindings for كورة البط, changeable in the key legend (click an action, press the new
+/** Key and gamepad-button bindings for كرة البط, changeable in the key legend (click an action, press the new
  *  key or pad button) and remembered on this device. Every input method maps onto the same eight actions, so the
  *  game itself never knows which one was used. */
 export type Act = "up" | "down" | "left" | "right" | "a" | "b" | "s" | "k";

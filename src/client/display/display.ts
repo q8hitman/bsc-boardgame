@@ -544,11 +544,11 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
     if (!lobby.dataset.code || lobby.dataset.code !== s.code + url + s.boardId) {
       lobby.dataset.code = s.code + url + s.boardId;
       lobby.innerHTML = isLocal()
-        ? `<div class="join"><h1>حفلة البط</h1><div class="sub">على هالجهاز</div><div class="bname">${esc(gameName(s.boardId))}</div></div>
+        ? `<div class="join"><h1 dir="ltr">Duck Party</h1><div class="sub">على هالجهاز</div><div class="bname">${esc(gameName(s.boardId))}</div></div>
            <div class="seats" id="seats"></div><div class="hint" id="hint"></div>`
         : `
         <div class="join">
-          <h1>حفلة البط</h1>
+          <h1 dir="ltr">Duck Party</h1>
           <div class="sub">صوّر الكود من تلفونك وادخل</div>
           <div class="bname">${esc(gameName(s.boardId))}</div>
           <img class="qr" id="qr" alt="">

@@ -1,4 +1,4 @@
-/* ---------- كورة البط: pitch canvas + pixel HUD + controls */
+/* ---------- كرة البط: pitch canvas + pixel HUD + controls */
 .fb-root {
   position: absolute; inset: 0; overflow: hidden; background: #1c2240; touch-action: none; user-select: none; -webkit-user-select: none;
   font-family: var(--font, "Baloo Bhaijaan 2", system-ui, sans-serif); color: #fff; direction: rtl; -webkit-tap-highlight-color: transparent;

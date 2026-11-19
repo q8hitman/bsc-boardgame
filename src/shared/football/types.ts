@@ -1,4 +1,4 @@
-/** كورة البط: real-time 5-a-side football. The server runs the match (src/server/football.ts with the engine in
+/** كرة البط: real-time 5-a-side football. The server runs the match (src/server/football.ts with the engine in
  *  src/shared/football/engine.ts); every screen draws it from FbFrame snapshots (~15 a second) and FbState (in
  *  GameState.football, sent with the normal "state" updates when something changes: score, clock start/stop, stage).
  *

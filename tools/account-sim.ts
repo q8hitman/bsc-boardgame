@@ -1,5 +1,7 @@
 // Account progress: levels, badges, merging records, the game of the day, the catalog copy.
 // Run: npx tsx tools/account-sim.ts
+import { CATALOG } from "../src/shared/catalog";
+import { SPORT_NAMES } from "../src/shared/sports";
 import { BADGES, badgesOf, gameOfDay, levelOf, mergeStats, totals, xpOf, type Stats } from "../src/client/account/progress";
 
 let fails = 0;
@@ -45,6 +47,21 @@ ok(gameOfDay(new Date("2026-11-19T22:30:00Z"), g7) === gameOfDay(new Date("2026-
 const days = Array.from({ length: 7 }, (_, i) => gameOfDay(new Date(Date.UTC(2026, 10, 19 + i, 10)), g7));
 ok(new Set(days).size > 1, `the game changes over a week (${days})`);
 ok(g7.includes(gameOfDay(new Date(), g7)), "always one of the ids");
+
+// the catalog copy (spec table) and names
+const TAGS: Record<string, string> = {
+  football: "مباراة ٥ ضد ٥. مرّر وسدّد وافتك الكورة",
+  pool: "دخّل كراتك قبل خصمك",
+  bowling: "الكل يرمي سوا · منو يطيّح أكثر؟",
+  hoops: "سجّل ورا بعض وتولّع",
+  golf: "دخّلها بأقل ضربات",
+};
+for (const [id, tag] of Object.entries(TAGS)) ok(CATALOG.find((g) => g.id === id)?.tag === tag, `${id} description`);
+ok(CATALOG.find((g) => g.kind === "cards")?.tag === "خلّص ورقك وصيح كش!", "cards description");
+const boards = CATALOG.filter((g) => g.kind === "board");
+ok(boards.some((g) => g.tag === "لوحة نجوم وألعاب صغيرة") && boards.some((g) => g.tag === "أول واحد يوصل التاج"), "board descriptions");
+ok(CATALOG.every((g) => !g.badge || g.badge === "جديد"), "badges are only «جديد»");
+ok(SPORT_NAMES.football === "كرة البط", `football is called كرة البط (${SPORT_NAMES.football})`);
 
 console.log(fails ? `FAIL (${fails})` : "PASS");
 process.exit(fails ? 1 : 0);

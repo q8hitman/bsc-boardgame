@@ -209,7 +209,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     top.classList.add("hidden");
     main.innerHTML = `
       <img class="duck" src="assets/tokens/token0.png" alt="">
-      <h1>حفلة البط</h1>
+      <h1 dir="ltr">Duck Party</h1>
       <input class="code" id="c" maxlength="4" placeholder="رمز" value="${esc(code)}" autocomplete="off" />
       <input id="n" maxlength="14" placeholder="اسمك (اختياري)" value="${esc(savedName())}" />
       ${error ? `<div class="err">${esc(error)}</div>` : ""}
@@ -274,7 +274,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     btn.onclick = async () => {
       buzz(20);
       try {
-        if (navigator.share) return await navigator.share({ title: "حفلة البط", text: "تعال العب معانا", url });
+        if (navigator.share) return await navigator.share({ title: "Duck Party", text: "تعال العب معانا", url });
       } catch (e) {
         if ((e as Error)?.name === "AbortError") return; // closed the share sheet
       }

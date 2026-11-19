@@ -48,6 +48,6 @@ export const SPORT_NAMES: Record<SportId, string> = {
   bowling: BOWLING.name,
   golf: GOLF.name,
   hoops: HOOPS.name,
-  football: "كورة البط",
+  football: "كرة البط",
   pool: "بلياردو البط",
 };

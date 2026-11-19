@@ -1,4 +1,4 @@
-/** The BSC club members who play كورة البط. Sprite strips: /assets/football/<id>-blue.png and <id>-red.png
+/** The BSC club members who play كرة البط. Sprite strips: /assets/football/<id>-blue.png and <id>-red.png
  *  (the referee: zahraa-ref.png). Each strip = 6 frames of 64x72 px, left to right: idle, run1, run2, run3, run4, kick.
  *  Drawn facing right; flip for left. Feet on the bottom row - 1, centred horizontally. */
 export const CLUB: { id: string; name: string }[] = [

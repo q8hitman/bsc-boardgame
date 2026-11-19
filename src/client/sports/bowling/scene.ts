@@ -299,7 +299,7 @@ export class Alley {
 
     // masking units with each player's duck + name (and their reflections in the lane)
     lanes.forEach((l, i) => {
-      const mt = keep(T.maskingTexture({ num: l.num, name: l.key ? l.name : "حفلة البط", color: l.key ? l.color : "#9b7bff", duck: l.duck }));
+      const mt = keep(T.maskingTexture({ num: l.num, name: l.key ? l.name : "Duck Party", color: l.key ? l.color : "#9b7bff", duck: l.duck }));
       const mat = keep(new THREE.MeshBasicMaterial({ map: mt, toneMapped: false }));
       const geo = keep(new THREE.PlaneGeometry(PITCH, MASK_H));
       const m = add(new THREE.Mesh(geo, mat));

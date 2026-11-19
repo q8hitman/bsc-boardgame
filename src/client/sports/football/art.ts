@@ -520,7 +520,7 @@ const ADS: Ad[] = [
   { bg: 0xe3256b, bg2: 0xbf1653, fg: "#ffffff", ink: "#4d0721", logo: "microbe", text: "ميكروب FC" },
   { bg: 0x23232e, bg2: 0x18181f, fg: "#7cfc6a", ink: "#000000", logo: "flask", text: "مختبر البط" },
   { bg: 0x3b8f2a, bg2: 0x2d7520, fg: "#ffffff", ink: "#123d0c", logo: "leaf", text: "Cell+" },
-  { bg: 0xf08a24, bg2: 0xd56f12, fg: "#ffffff", ink: "#5a2a04", logo: "ball", text: "كورة البط" },
+  { bg: 0xf08a24, bg2: 0xd56f12, fg: "#ffffff", ink: "#5a2a04", logo: "ball", text: "كرة البط" },
   { bg: 0x6a2bd8, bg2: 0x5320b0, fg: "#ffffff", ink: "#22094f", logo: "dna", text: "بيولوجي" },
   { bg: 0xf3f3f0, bg2: 0xd9dcd8, fg: "#1d2a6b", ink: "#ffffff", logo: "petri", text: "BSC Lab" },
 ];

@@ -24,7 +24,7 @@ const STALE_INPUT_MS = 600;
 const MAX_BAD_TICKS = 30;
 const ar = (n: number) => String(n).replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[+d]);
 
-/** كورة البط match runner: a 30 Hz loop around the engine (src/shared/football/engine.ts), frames ~15 a second,
+/** كرة البط match runner: a 30 Hz loop around the engine (src/shared/football/engine.ts), frames ~15 a second,
  *  FbState in GameState.football whenever the stage, score or clock changes. Flow: intro (teams banner) ->
  *  half 1 -> half time ("tile" phase, ends swap) -> half 2 -> [penalties when a two-half match is level] ->
  *  final -> end. GameState.sport is filled too (total = each player's team goals) for the pad, end screen and win record.
@@ -123,7 +123,7 @@ export class FootballGame implements GameRunner {
     s.round = 1;
     eng.idle();
     this.h.setPhase("intro", INTRO_MS / this.speed);
-    this.emit({ kind: "banner", title: "كورة البط", text: this.teamsText() });
+    this.emit({ kind: "banner", title: "كرة البط", text: this.teamsText() });
     this.later(INTRO_MS, () => this.beginHalf(1));
     // a fine interval with an accumulator: timers on some systems only fire every ~15.6 ms, which would make a
     // plain 33 ms interval run at ~21-32 Hz; this keeps exactly 30 ticks (15 frames) a second on average
