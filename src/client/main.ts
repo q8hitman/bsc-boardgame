@@ -26,6 +26,12 @@ async function route() {
     startController(app, (params.get("join") ?? "").toUpperCase(), undefined, { create: params.has("create"), game: params.get("game") ?? undefined });
     return;
   }
+  if (params.has("kart")) {
+    // SPIKE: the duck kart test track
+    const { startKartSpike } = await import("./sports/kart/spike");
+    startKartSpike(app);
+    return;
+  }
   if (params.has("cards")) {
     // every card face side by side (design check)
     const { cardHtml, cardBack } = await import("./cards-ui");
@@ -67,7 +73,7 @@ function home() {
 route();
 
 // accounts (Firebase) load after the page shows; a projector screen and the card preview never sign in
-if (!params.has("screen") && !params.has("cards")) {
+if (!params.has("screen") && !params.has("cards") && !params.has("kart")) {
   const startCloud = () => void import("./account/cloud").then((m) => m.startCloud()).catch((e) => console.warn("[account] not loaded", e));
   if ("requestIdleCallback" in window) requestIdleCallback(startCloud, { timeout: 2500 });
   else setTimeout(startCloud, 800);
