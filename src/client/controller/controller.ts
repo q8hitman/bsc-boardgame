@@ -52,7 +52,18 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
   let mgCleanup: (() => void) | null = null;
 
   const tokenKey = (c: string) => `duck-token-${c}`;
-  const savedName = () => (local ? local.name : localStorage.getItem("duck-name") ?? "");
+  // the name comes from the account (or this device's profile), never typed inside a game
+  const savedName = () => (local ? local.name : profile().name.trim());
+  /** "playing as X" with a button to the account sheet (where the name and duck are changed) */
+  const nameLine = () => {
+    const n = savedName();
+    return `<div class="as-line">${n ? `تلعب باسم <b>${esc(n)}</b>` : "ما كتبت اسمك"}<button type="button" class="small-btn" id="acctName">${n ? "غيّر" : "اكتب اسمك"}</button></div>`;
+  };
+  const bindNameLine = (redraw: () => void) => {
+    main.querySelector<HTMLButtonElement>("#acctName")?.addEventListener("click", () =>
+      void import("../account/sheet").then((m) => m.openAccount(redraw)),
+    );
+  };
 
   // the free online server sleeps: say so instead of looking broken while it wakes up
   const wake = root.querySelector<HTMLDivElement>("#wake")!;
@@ -211,18 +222,24 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       <img class="duck" src="assets/tokens/token0.png" alt="">
       <h1 dir="ltr">Duck Party</h1>
       <input class="code" id="c" maxlength="4" placeholder="رمز" value="${esc(code)}" autocomplete="off" />
-      <input id="n" maxlength="14" placeholder="اسمك (اختياري)" value="${esc(savedName())}" />
+      ${nameLine()}
       ${error ? `<div class="err">${esc(error)}</div>` : ""}
       <button class="big-btn" id="go">ادخل</button>`;
     const go = () => {
       const c = (main.querySelector<HTMLInputElement>("#c")!.value || "").toUpperCase().trim();
-      const n = main.querySelector<HTMLInputElement>("#n")!.value.trim();
-      localStorage.setItem("duck-name", n);
+      const n = savedName();
       if (c.length !== 4) return showJoin("اكتب الرمز اللي على الشاشة (٤ حروف)");
       join(c, n, (e) => showJoin(e));
     };
     main.querySelector<HTMLButtonElement>("#go")!.onclick = go;
     main.querySelectorAll("input").forEach((i) => (i.onkeydown = (e) => e.key === "Enter" && go()));
+    bindNameLine(() => {
+      // keep a code already typed
+      const typed = main.querySelector<HTMLInputElement>("#c")?.value ?? "";
+      showJoin();
+      const ci = main.querySelector<HTMLInputElement>("#c");
+      if (ci) ci.value = typed;
+    });
   }
 
   function showCreate(error = "") {
@@ -232,7 +249,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       <img class="duck" src="assets/tokens/token0.png" alt="">
       <h1>سوّ غرفة</h1>
       <p>ترسل الرابط لربعك ويدخلون من تليفوناتهم</p>
-      <input id="n" maxlength="14" placeholder="اسمك" value="${esc(savedName())}" />
+      ${nameLine()}
       ${error ? `<div class="err">${esc(error)}</div>` : ""}
       <button class="big-btn green" id="go">سوّ الغرفة</button>
       <button class="small-btn" id="havecode">عندي كود</button>`;
@@ -240,8 +257,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     const go = () => {
       if (busy) return;
       busy = true;
-      const n = main.querySelector<HTMLInputElement>("#n")!.value.trim();
-      localStorage.setItem("duck-name", n);
+      const n = savedName();
       main.querySelector<HTMLButtonElement>("#go")!.textContent = "لحظة…";
       sock.timeout(20000).emit("room:create", { name: n, profileId: profile().id }, (err, res) => {
         if (err || !res) return showCreate("السيرفر ما رد. جرّب مرة ثانية");
@@ -252,7 +268,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       });
     };
     main.querySelector<HTMLButtonElement>("#go")!.onclick = go;
-    main.querySelector<HTMLInputElement>("#n")!.onkeydown = (e) => e.key === "Enter" && go();
+    bindNameLine(() => showCreate());
     main.querySelector<HTMLButtonElement>("#havecode")!.onclick = () => {
       history.replaceState(null, "", "?join=");
       showJoin();
@@ -623,7 +639,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     main.innerHTML = `${shareBlock(s)}${rivalsBlock(s)}
       <img class="duck" src="${duckImg(p)}" alt="">
       <h1>${esc(DUCKS[p.duck].name)}</h1>${DUCKS[p.duck].ref ? `<p class="ref">من ${esc(DUCKS[p.duck].ref!)}</p>` : ""}
-      <input id="nm" maxlength="14" value="${esc(p.name)}" />
+      <p class="lob-name">${esc(p.name)}</p>
       ${s.boardId === "football" ? footballLobby(s) : ""}
       <p>اختار قطعتك</p>
       <div class="picker">${DUCKS.map((d, i) => {
@@ -640,11 +656,6 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
            ${seatTools(s)}
            <button class="big-btn green" id="start" ${s.players.length < (s.boardId === "football" ? 1 : 2) ? "disabled style='opacity:.5'" : ""}>ابدأ اللعبة (${ar(s.players.length)} لاعبين)</button>`
         : `<p>بانتظار المنظم يبدأ… (${ar(s.players.length)} لاعبين)</p>`}`;
-    const nm = main.querySelector<HTMLInputElement>("#nm")!;
-    nm.onchange = () => {
-      if (!local) localStorage.setItem("duck-name", nm.value.trim());
-      sock.emit("player:rename", nm.value);
-    };
     main.querySelectorAll<HTMLButtonElement>("[data-piece]").forEach((b) =>
       b.addEventListener("click", () => {
         buzz(20);

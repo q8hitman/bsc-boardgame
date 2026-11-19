@@ -23,8 +23,11 @@ export const setAuthArea = (fn: (el: HTMLElement) => void) => {
 };
 
 let sheet: HTMLDivElement | null = null;
+let onClosed: (() => void) | null = null;
 
-export function openAccount() {
+/** opens the sheet; `onClose` runs once when it closes (a page that shows the name redraws it) */
+export function openAccount(onClose?: () => void) {
+  onClosed = onClose ?? null;
   if (!sheet) {
     sheet = document.createElement("div");
     sheet.className = "asheet hidden";
@@ -39,7 +42,13 @@ export function openAccount() {
 }
 
 export function closeAccount() {
-  sheet?.classList.add("hidden");
+  if (!sheet || sheet.classList.contains("hidden")) return;
+  // (the name box saves on blur: let it save before the page behind redraws)
+  (document.activeElement as HTMLElement | null)?.blur?.();
+  sheet.classList.add("hidden");
+  const cb = onClosed;
+  onClosed = null;
+  cb?.();
 }
 
 /** redraw an open sheet (after sign-in / sync) */

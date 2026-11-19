@@ -322,3 +322,9 @@ body.ph-on { overflow: hidden; }
 .rv-score i:last-child { color: #ff8a8a; }
 .rv-new { font-size: 13px; color: #ffd23f; }
 .bpick button small { display: block; font-size: 12px; opacity: .7; font-weight: 700; }
+
+/* the name comes from the account: "playing as X" + a button to the account sheet; the lobby shows it as text */
+.as-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 10px; font-size: 18px; font-weight: 700; margin: 4px 0; }
+.as-line b { font-weight: 800; }
+.as-line .small-btn { margin: 0; }
+.lob-name { margin: 0; font-size: 22px; font-weight: 800; }

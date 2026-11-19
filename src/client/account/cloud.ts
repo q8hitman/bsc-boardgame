@@ -218,6 +218,8 @@ export function startCloud() {
     }
     if (data) {
       const d = data;
+      if (d.name && d.name !== profile().name) saveProfile({ name: d.name });
+      if (d.char !== profile().char) saveProfile({ char: d.char });
       setMeSource(() => ({ name: d.name, char: d.char, stats: { games: d.games, days: d.days }, signedIn: true }));
     } else {
       setMeSource(() => {

@@ -7,6 +7,7 @@ import { sportCourses } from "../../shared/sports";
 import { startController } from "../controller/controller";
 import { useLocalServer } from "../local-server";
 import { ar, type ClientSocket, esc, setLocalConnect } from "../net";
+import { profile } from "../profile";
 
 /** One-device mode: the whole game on this PC or phone. The board takes the screen, every person playing here
  *  gets a panel (what would be their phone), and bots fill the other seats. No server, no network: it also runs
@@ -34,6 +35,8 @@ function pickCourse(room: { state: { boardId: string }; setCourse(id: string): v
 
 export function startLocal(app: HTMLElement) {
   const cfg = load("duck-local", { game: "island", humans: 1, names: ["لاعب ١", "لاعب ٢"], bots: 3, rounds: PARTY_DEFAULT_ROUNDS, level: 0 });
+  /** the name comes from the account (this device's profile); a second person on this device is «لاعب ٢» */
+  const nameFor = (i: number) => (i === 0 ? profile().name.trim() || "لاعب ١" : `لاعب ${ar(i + 1)}`);
   if (![0, 1, 2].includes(cfg.level)) cfg.level = 0;
   const save = () => {
     try {
@@ -69,7 +72,7 @@ export function startLocal(app: HTMLElement) {
         <div class="lp-games">${GAMES.map((g) => `<button class="${g.id === cfg.game ? "on" : ""}" data-game="${g.id}"><img src="assets/thumbs/${g.id}.jpg" alt=""><span>${esc(g.name)}</span></button>`).join("")}</div>`}
         <h3>كم واحد بيلعب على هالجهاز؟</h3>
         <div class="lp-seg">${[1, 2].map((n) => `<button class="${cfg.humans === n ? "on" : ""}" data-humans="${n}">${n === 1 ? "بروحي" : "اثنين"}</button>`).join("")}</div>
-        <div class="lp-names">${Array.from({ length: cfg.humans }, (_, i) => `<label><span>${cfg.humans > 1 ? `اللاعب ${ar(i + 1)}` : "اسمك"}</span><input data-name="${i}" maxlength="14" value="${esc(cfg.names[i] ?? "")}"></label>`).join("")}</div>
+        <p class="lp-sub">تلعب باسم <b>${esc(nameFor(0))}</b>${cfg.humans > 1 ? ` · اللاعب الثاني «${esc(nameFor(1))}»` : ""}</p>
         ${game.id === "football" ? `<p class="lp-sub">الكمبيوتر يكمّل الفريقين (٥ ضد ٥)</p>` : `<h3>لاعبين كمبيوتر</h3>
         ${cards
           ? `<div class="lp-step"><button id="bm">−</button><b>${ar(cfg.bots)}</b><button id="bp">+</button></div>`
@@ -98,10 +101,6 @@ export function startLocal(app: HTMLElement) {
       cfg.level = Number(b.dataset.level);
       save();
       setup();
-    }));
-    app.querySelectorAll<HTMLInputElement>("[data-name]").forEach((i) => (i.oninput = () => {
-      cfg.names[Number(i.dataset.name)] = i.value;
-      save();
     }));
     app.querySelector("#bm")?.addEventListener("click", () => {
       cfg.bots = Math.max(cfg.humans > 1 ? 0 : 1, cfg.bots - 1);
@@ -159,7 +158,7 @@ export function startLocal(app: HTMLElement) {
     await until(() => !!server.room);
     const room = server.room!;
     for (let i = 0; i < cfg.humans; i++) {
-      const name = (cfg.names[i] ?? "").trim() || `لاعب ${ar(i + 1)}`;
+      const name = nameFor(i);
       startController(app.querySelector<HTMLDivElement>(`#lpP${i}`)!, room.code, { name, keys: cfg.humans > 1 ? KEYS[i] : undefined });
       // join one after another so the first person here is the host
       await until(() => room.state.players.filter((x) => !x.isBot).length === i + 1);
@@ -188,7 +187,7 @@ export function startLocal(app: HTMLElement) {
     // Phaser game, the big island picture, every token), built and thrown away a moment later; on a phone that
     // was seconds of a frozen screen before the match (board games keep their order: seats fill after the join)
     if (!BOARDS[cfg.game]) room.setBoard(cfg.game);
-    const name = (cfg.names[0] ?? "").trim() || "لاعب ١";
+    const name = nameFor(0);
     startController(app.querySelector<HTMLDivElement>("#lpP0")!, room.code, { name, phone: true });
     while (room.state.players.length < 1) await new Promise((r) => setTimeout(r, 40));
     room.setBoard(cfg.game);
