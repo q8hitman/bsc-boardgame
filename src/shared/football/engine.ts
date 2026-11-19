@@ -93,7 +93,7 @@ export const TUNE = {
   /** how far a hard ball stretches the back netting (m behind the back-net line) */
   netGive: 0.35,
   /** seconds of holding b for a full-power shot */
-  chargeTime: 0.9,
+  chargeTime: 0.75,
   slideSpeed: 10,
   slideTime: 0.4,
   slideCooldown: 1.1,
@@ -113,7 +113,7 @@ export const TUNE = {
   /** braking / turning back is quicker than speeding up (multiplier on accel when the stick points against the run) */
   brakeFactor: 1.7,
   /** a tapped shot still has this much power (0..1); holding fills the rest */
-  shotTapPower: 0.28,
+  shotTapPower: 0.4,
   /** standing tackle: a defender this close to the ball commits to one (a computer duck: rate per second scaled by
    *  skill; a person's duck: when he runs in within pokeR). It is never a silent dice roll: he leans in for
    *  tackleWind seconds (you see it coming and can turn away), then for tackleHit seconds his boot gets the ball if
@@ -297,6 +297,8 @@ export interface Person {
   s: boolean;
   k: boolean;
   kDown: boolean;
+  /** chip asked for (the sprint key held, not a phone's pushed-out stick) */
+  c: boolean;
   /** controlled slot right now and how long it has been */
   ctrl: number;
   ctrlT: number;
@@ -463,7 +465,7 @@ export class FbEngine {
 
   // ------------------------------------------------------------------ people
   addPerson(pid: string, team: FbTeam, own: number) {
-    this.people.set(pid, { pid, team, own, active: true, x: 0, y: 0, a: false, b: false, aDown: false, aUp: false, aT: -1, bDown: false, bUp: false, s: false, k: false, kDown: false, ctrl: own, ctrlT: 0, aim: -1 });
+    this.people.set(pid, { pid, team, own, active: true, x: 0, y: 0, a: false, b: false, aDown: false, aUp: false, aT: -1, bDown: false, bUp: false, s: false, k: false, kDown: false, c: false, ctrl: own, ctrlT: 0, aim: -1 });
   }
   setActive(pid: string, active: boolean) {
     const p = this.people.get(pid);
@@ -488,6 +490,7 @@ export class FbEngine {
     p.b = inp.b;
     p.s = !!inp.s;
     p.k = !!inp.k;
+    p.c = !!inp.c;
     p.x = clamp(inp.x, -1, 1);
     p.y = clamp(inp.y, -1, 1);
   }
@@ -1208,6 +1211,8 @@ export class FbEngine {
       p.bDown = false;
       if (mine || this.nearBall(d, 1.6)) d.charge = 0;
     }
+    // shoot held before the ball arrived: the charge starts when it is at his feet
+    if (p.b && d.charge < 0 && mine) d.charge = 0;
     if (d.charge >= 0) {
       if (p.b) d.charge = Math.min(1, d.charge + dt / TUNE.chargeTime);
     }
@@ -1218,7 +1223,8 @@ export class FbEngine {
         const bend = Math.abs(jy) > 0.25 ? jy * 0.7 : 0;
         const aim = Math.abs(jy) > 0.25 ? clamp(jy * 3.2, -2.9, 2.9) : this.autoAim(d);
         const power = TUNE.shotTapPower + (1 - TUNE.shotTapPower) * d.charge;
-        if (p.s && mine) this.chip(d, power, aim);
+        // (a chip keeps its own softer scale: the same hold lifts it the same height as before)
+        if (p.c && mine) this.chip(d, 0.28 + 0.72 * Math.min(1, (d.charge * TUNE.chargeTime) / 0.9), aim);
         else this.shoot(d, power, aim, 0.6, bend, true);
       }
       d.charge = -1;

@@ -1252,7 +1252,7 @@ export class FootballScene extends Phaser.Scene {
       // through / long ball, orange = cross)
       if (aimSlot === d.slot) this.aimMark(X, Y + Math.min(0, oy), aimKind, time);
       // a defender about to tackle my team's carrier: a "!" over him (you can turn away)
-      if (act === FbAction.Lean && myTeam >= 0 && d.team !== myTeam && pose.owner >= 0 && this.teamOf(pose.owner) === myTeam) this.warnMark(X, Y - 94 + Math.min(0, oy), since, time);
+      if (act === FbAction.Lean && !controlled.has(d.slot) && myTeam >= 0 && d.team !== myTeam && pose.owner >= 0 && this.teamOf(pose.owner) === myTeam) this.warnMark(X, Y - 94 + Math.min(0, oy), since, time);
       const kind = mine ? "me" : pid !== undefined || d.human ? "human" : "cpu";
       if (ctlKey !== this.lastCtl || !d.label || this.zoomChanged) this.labelFor(d, kind);
       d.label?.setPosition(X, Y - (pid !== undefined ? (mine ? 88 : 84) : 74) + (kneel ? oy : Math.min(0, oy)));

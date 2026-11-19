@@ -14,7 +14,7 @@ import { ACTS, bindKey, bindPad, keyLabel, loadBindings, resetBindings, saveBind
  *  movement at most every 40 ms. A press always goes out as "true" at least once, however short the tap. */
 const RESEND = 200;
 const MIN_GAP = 40;
-const CHARGE_MS = 1000;
+const CHARGE_MS = 750;
 type Btn = "a" | "b" | "s" | "k";
 const BTNS: Btn[] = ["a", "b", "s", "k"];
 const isBtn = (a: Act | undefined): a is Btn => a === "a" || a === "b" || a === "s" || a === "k";
@@ -291,6 +291,7 @@ export class FootballControls {
       a: this.isDown("a") || this.latch.a,
       b: this.isDown("b") || this.latch.b,
       s: this.isDown("s") || this.joy.sprint,
+      c: this.isDown("s"),
       k: this.isDown("k") || this.latch.k,
       p: false,
     };

@@ -279,7 +279,7 @@
 
 /* phones: two buttons only. Sprint = push the stick out past its ring (the knob glows), the skill move = a sharp
    turn when a "!" defender leans in */
-.fb-ctrl.touch .fbb.s, .fb-ctrl.touch .fbb.k { display: none; }
+.fb-ctrl.touch .fbb.s { display: none; }
 .joy.sprint { box-shadow: 0 0 0 4px rgba(255, 154, 42, .55), 0 0 18px rgba(255, 154, 42, .6); }
 .joy.sprint .knob { background: #ff9a2a; }
 .fbb.a.long { background: #ffb21f !important; color: #3a2400; }

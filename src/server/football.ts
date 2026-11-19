@@ -251,7 +251,9 @@ export class FootballGame implements GameRunner {
       roster.push({ slot: roster.length, team: t, char: k.id, name: k.name, gk: true });
       for (const id of teams[t]) {
         const pl = s.players.find((p) => p.id === id)!;
-        roster.push({ slot: roster.length, team: t, char: charOf.get(id)!, name: pl.name, gk: false, pid: id });
+        // the duck carries its character's name on the pitch (not the person's own name)
+        const ch = charOf.get(id)!;
+        roster.push({ slot: roster.length, team: t, char: ch, name: CLUB.find((c) => c.id === ch)?.name ?? pl.name, gk: false, pid: id });
       }
       for (let n = teams[t].length; n < 4; n++) {
         const c = nextFree();

@@ -99,7 +99,9 @@ function carrier(e: FbEngine, d: Duck) {
   }
   if (d.hasT < 0.2) return dribble(e, d, distGoal);
   // pressed from the front: now and then a skill move round him
-  if (pressure < 1.8 && d.trickCd <= 0 && e.rng() < 0.02 + 0.06 * d.skill) {
+  // (against a person's defender: as often as a person would, less on easy)
+  const vsPerson = e.ducks.some((x) => x.team !== d.team && !x.gk && e.isHuman(x) && hyp(x.x - d.x, x.y - d.y) < 2.5);
+  if (pressure < 1.8 && d.trickCd <= 0 && e.rng() < (0.02 + 0.06 * d.skill) * (vsPerson ? [0.35, 0.6, 1][e.level] : 1)) {
     let o: Duck | null = null;
     for (const x of e.ducks) if (x.team !== d.team && !x.gk && (!o || hyp(x.x - d.x, x.y - d.y) < hyp(o.x - d.x, o.y - d.y))) o = x;
     if (o && (o.x - d.x) * s > -0.3) {

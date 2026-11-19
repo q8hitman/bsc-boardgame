@@ -484,9 +484,9 @@ function outcome(e: FbEngine, secs = 3.5) {
     freeze(e, 5, HALF_L - 6, 0);
     e.ducks[5].think = 0; // he reacts (backpedals, jumps)
     give(e, 1);
-    e.input("me", { x: 1, y: 0, a: false, b: true, s: true });
+    e.input("me", { x: 1, y: 0, a: false, b: true, s: true, c: true });
     steps(e, 6);
-    e.input("me", { x: 1, y: 0, a: false, b: false, s: true });
+    e.input("me", { x: 1, y: 0, a: false, b: false, s: true, c: true });
     const g0 = e.score[0];
     steps(e, 60, undefined, () => e.score[0] > g0);
     if (e.score[0] > g0) goals++;
@@ -751,6 +751,30 @@ function outcome(e: FbEngine, secs = 3.5) {
     if (me.x < o.x || e.ball.owner !== 6) goalSide++;
   }
   ok(45, goalSide >= 5, `defending assist: running at their carrier puts you between him and your goal ${goalSide}/6`);
+}
+
+{
+  // 46: a phone sprints by pushing the stick out (s without c): a full-power shot while sprinting is a real shot (fast,
+  // low), never a chip; the shot held from before the ball arrived still charges
+  const e = world();
+  freeze(e, 1, 10, 0);
+  give(e, 1);
+  e.input("me", { x: 1, y: 0, a: false, b: true, s: true });
+  steps(e, Math.ceil(TUNE.chargeTime / DT) + 3);
+  let sp = 0;
+  e.input("me", { x: 1, y: 0, a: false, b: false, s: true });
+  steps(e, 1, undefined, () => {
+    if (e.ball.owner < 0) sp = Math.hypot(e.ball.vx, e.ball.vy);
+  });
+  const e2 = world();
+  freeze(e2, 1, 10, 0);
+  freeze(e2, 2, 4, 0);
+  e2.input("me", { x: 1, y: 0, a: false, b: true });
+  e2.step();
+  give(e2, 1);
+  steps(e2, Math.ceil(TUNE.chargeTime / DT) + 2);
+  const ch = e2.ducks[1].charge;
+  ok(46, sp > 28 && ch >= 0.95, `sprinting full-power shot = ${sp.toFixed(1)} m/s (no chip); shoot held before the ball came: charge ${ch.toFixed(2)}`);
 }
 
 console.log(fails ? `FAIL (${fails} of ${count})` : `PASS (${count})`);

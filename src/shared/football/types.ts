@@ -158,6 +158,9 @@ export interface FbInput {
   s?: boolean;
   /** skill move, pressed: with the ball = a feint / step-over in the joystick direction; without = a quick dash */
   k?: boolean;
+  /** chip: the shot is a lob over the keeper (the sprint key / pad button held while shooting). Phones sprint by
+   *  pushing the stick out, which is not a chip: they never send it */
+  c?: boolean;
   /** pause (held as a state: true while the player wants the match paused). Only honoured when this person is the
    *  only one in the match (solo against the computer): the whole match stops until it is false again */
   p?: boolean;
