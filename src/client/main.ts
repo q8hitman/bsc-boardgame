@@ -1,7 +1,7 @@
 import "./style.css";
 import "./hub.css";
 import { ONLINE_URL, serverUrl } from "./config";
-import { home as renderHome, type Go } from "./hub/hub";
+import { home as renderHome, onChip, type Go } from "./hub/hub";
 import { initAudio } from "./sfx";
 
 const app = document.getElementById("app")!;
@@ -58,6 +58,7 @@ function home() {
     if (extra) params.set(extra[0], extra[1]);
     route();
   };
+  onChip(() => void import("./account/sheet").then((m) => m.openAccount()));
   renderHome(app, go);
   // the free online server sleeps: start waking it while people read the page
   if (serverUrl()) fetch(ONLINE_URL + "/api/lan", { mode: "no-cors" }).catch(() => {});
