@@ -93,6 +93,9 @@ export interface FbFrame {
   ev?: [number, number][];
   /** room player id -> stamina 0..1 of the duck they control (for the sprint bar); people only */
   st?: Record<string, number>;
+  /** room player id -> who their pass would reach right now (slot + 100 * kind: 0 to feet, 1 through / long, 2 cross);
+   *  only while they have the ball and a team-mate that way. The screens mark him. */
+  pt?: Record<string, number>;
 }
 
 /** FbFrame.ev kinds */
@@ -136,6 +139,8 @@ export const FbAction = {
   Tackle: 11,
   /** off balance: a missed tackle, beaten by a skill move */
   Stagger: 12,
+  /** leaning in before a standing tackle (the screens show a "!" over a defender about to tackle you) */
+  Lean: 13,
 } as const;
 
 /** One phone's controls, sent over "fb:input" whenever they change (and at least every 250 ms while held).

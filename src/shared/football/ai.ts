@@ -320,7 +320,7 @@ function press(e: FbEngine, d: Duck, o: Duck) {
   // against a person: hold off and jockey (goal-side, a step away), lunging in now and then; that leaves room to
   // play instead of a defender glued to the ball. Against the computer: tight.
   const human = e.isHuman(o);
-  if (human && e.time > d.lunge && e.rng() < 0.05 + 0.09 * d.skill) d.lunge = e.time + 0.4;
+  if (human && e.time > d.lunge && e.rng() < (0.05 + 0.09 * d.skill) * [0.4, 0.65, 0.95][e.level]) d.lunge = e.time + 0.4;
   const r = !human ? 0.7 : e.time < d.lunge ? 0.2 : 1.5;
   d.tx = o.x + o.vx * 0.25 + (gx / gm) * r;
   d.ty = o.y + o.vy * 0.25 + (gy / gm) * r;
@@ -329,7 +329,13 @@ function press(e: FbEngine, d: Duck, o: Duck) {
   sprintIf(d, dist > 4 || o.sprinting, 0.25);
   if (dist < 2.0 && dist > 0.6 && d.slideCd <= 0) {
     const inBox = Math.abs(d.x - goalX) < PITCH.boxDepth;
-    const pSlide = (0.015 + 0.035 * d.skill) * (inBox ? 0.4 : 1);
+    let pSlide = (0.015 + 0.035 * d.skill) * (inBox ? 0.4 : 1);
+    if (human) {
+      // on a person: a slide can't be seen coming, so only on hard, rarely, and only from in front of him (from
+      // behind it is a foul and feels like a cheat); easy and normal win the ball with standing tackles you can read
+      const front = ((d.x - o.x) * o.hx + (d.y - o.y) * o.hy) / (dist || 1);
+      pSlide = e.level < 2 || front < 0.3 ? 0 : pSlide * 0.5;
+    }
     if (e.rng() < pSlide) e.slideStart(d, e.ball.x - d.x, e.ball.y - d.y);
   }
 }

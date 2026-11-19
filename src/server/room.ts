@@ -554,6 +554,14 @@ export class Room {
     this.emit();
   }
 
+  /** football: how hard the computer plays against people */
+  setLevel(l: number) {
+    const s = this.state;
+    if (s.phase !== "lobby" || ![0, 1, 2].includes(l)) return;
+    s.fbLevel = l as 0 | 1 | 2;
+    this.emit();
+  }
+
   skip() {
     const s = this.state;
     const cur = this.current;

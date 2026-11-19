@@ -32,7 +32,10 @@ export const isTouch = () => {
 export class FootballControls {
   readonly el: HTMLDivElement;
   private cb: ((i: FbInput) => void) | null = null;
-  private joy = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
+  private joy = { id: -1, ox: 0, oy: 0, x: 0, y: 0, sprint: false };
+  /** touch: what a held pass would be (from the server: 1 through / long, 2 cross) and the A press timer */
+  private aimK = 0;
+  private aTimer = 0;
   private keys = new Set<string>();
   /** button keys held right now (two keys can mean the same button) */
   private bkeys = new Set<string>();
@@ -78,10 +81,10 @@ export class FootballControls {
     this.el = document.createElement("div");
     this.el.className = `fb-ctrl hidden${big ? " big" : ""}${this.touch ? " touch" : " desk"}`;
     this.el.innerHTML = `
-      <div class="joyzone"><div class="joyhint">اسحب هني للحركة</div></div>
+      <div class="joyzone"><div class="joyhint">اسحب هني للحركة<small>لبعيد = ركض</small></div></div>
       <div class="joy hidden"><div class="knob"></div></div>
       <div class="btns">
-        <button class="fbb a" type="button"><span class="k">A</span><b>زحلقة</b></button>
+        <button class="fbb a" type="button"><span class="k">A</span><b>افتك</b></button>
         <button class="fbb b" type="button"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" pathLength="100"/></svg><span class="k">B</span><b>بدّل</b></button>
         <button class="fbb s" type="button"><span class="k">»</span><b>ركض</b></button>
         <button class="fbb k" type="button"><span class="k">★</span><b>حركة</b></button>
@@ -219,15 +222,20 @@ export class FootballControls {
     this.el.classList.toggle("withball", mine);
     if (team === this.hasBall) return;
     this.hasBall = team;
-    const pass = team ? "تمرير" : "زحلقة";
+    const pass = team ? "تمرير" : "افتك";
     const shoot = team ? "تسديد" : "بدّل";
     this.els.a.querySelector("b")!.textContent = pass;
     this.els.b.querySelector("b")!.textContent = shoot;
     this.el.classList.toggle("attack", !!team);
     const la = this.el.querySelector(".la");
     const lb = this.el.querySelector(".lb");
-    if (la) la.textContent = team ? "تمرير (مطوّل = طويلة / عرضية)" : "زحلقة";
+    if (la) la.textContent = team ? "تمرير (مطوّل = بينية / عرضية)" : "افتك (قريب) · زحلقة (بعيد)";
     if (lb) lb.textContent = team ? "تسديد (اضغط مطوّل)" : "بدّل اللاعب";
+  }
+
+  /** what my held pass would become (the server's pass target kind: 1 through / long, 2 cross) */
+  aimKind(k: number) {
+    this.aimK = k;
   }
 
   /** the key legend: shown at first, fades a while after you start playing (H brings it back) */
@@ -282,7 +290,7 @@ export class FootballControls {
       y: Math.round(y * 100) / 100,
       a: this.isDown("a") || this.latch.a,
       b: this.isDown("b") || this.latch.b,
-      s: this.isDown("s"),
+      s: this.isDown("s") || this.joy.sprint,
       k: this.isDown("k") || this.latch.k,
       p: false,
     };
@@ -310,8 +318,9 @@ export class FootballControls {
       this.latch[id] = false;
       this.els[id].classList.remove("on");
     }
-    this.joy = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
+    this.joy = { id: -1, ox: 0, oy: 0, x: 0, y: 0, sprint: false };
     this.base.classList.add("hidden");
+    this.base.classList.remove("sprint");
     this.el.classList.toggle("paused", on);
     this.changed();
   }
@@ -336,6 +345,23 @@ export class FootballControls {
     }
     this.raw.s = this.isDown("s");
     const cur = this.current();
+    // a held pass: after a moment the button says what it has become (a through ball / a cross)
+    if (cur.a && !this.aTimer && this.hasBall) {
+      this.aTimer = window.setTimeout(() => {
+        if (this.isDown("a") && this.hasBall && this.el.classList.contains("withball")) {
+          this.els.a.querySelector("b")!.textContent = this.aimK === 2 ? "عرضية" : "بينية";
+          this.els.a.classList.add("long");
+          buzz(10);
+        }
+      }, 230);
+    } else if (!cur.a && this.aTimer) {
+      clearTimeout(this.aTimer);
+      this.aTimer = 0;
+      if (this.els.a.classList.contains("long")) {
+        this.els.a.classList.remove("long");
+        this.els.a.querySelector("b")!.textContent = this.hasBall ? "تمرير" : "افتك";
+      }
+    }
     const bWas = this.bHeld;
     this.bHeld = cur.b;
     if (cur.b && !bWas) {
@@ -402,7 +428,7 @@ export class FootballControls {
     if (this.joy.id >= 0 || this.paused) return;
     e.preventDefault();
     const [ox, oy] = this.local(e);
-    this.joy = { id: e.pointerId, ox, oy, x: 0, y: 0 };
+    this.joy = { id: e.pointerId, ox, oy, x: 0, y: 0, sprint: false };
     try {
       this.zone.setPointerCapture?.(e.pointerId);
     } catch {
@@ -432,6 +458,13 @@ export class FootballControls {
       dx -= dx * k;
       dy -= dy * k;
     }
+    // the thumb pushed out past the ring: flat-out sprint (no sprint button to find on a phone)
+    const sprint = l > R * 1.3;
+    if (sprint !== this.joy.sprint) {
+      this.joy.sprint = sprint;
+      this.base.classList.toggle("sprint", sprint);
+      if (sprint) buzz(6);
+    }
     const m = Math.min(1, Math.hypot(dx, dy) / R);
     const ang = Math.atan2(dy, dx);
     const dead = 0.14;
@@ -443,8 +476,9 @@ export class FootballControls {
   };
   private joyUp = (e: PointerEvent) => {
     if (e.pointerId !== this.joy.id) return;
-    this.joy = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
+    this.joy = { id: -1, ox: 0, oy: 0, x: 0, y: 0, sprint: false };
     this.base.classList.add("hidden");
+    this.base.classList.remove("sprint");
     this.changed();
   };
 
@@ -603,8 +637,9 @@ export class FootballControls {
       this.els[id].classList.remove("on");
     }
     this.pad = { x: 0, y: 0, on: false };
-    this.joy = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
+    this.joy = { id: -1, ox: 0, oy: 0, x: 0, y: 0, sprint: false };
     this.base.classList.add("hidden");
+    this.base.classList.remove("sprint");
     if (any) this.changed();
   };
 

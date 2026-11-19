@@ -108,3 +108,27 @@ shoot / tackle button and team-mates "wandering"; Golazo's names erratic shootin
 
 Computer against computer, a defender is within reach of the ball 8% of the time; the person's team now reaches
 that (its computer ducks 9%, plus the person 18%), so the engine no longer favours the computer's defence.
+
+## 8. Round 6: fair tackles, phone controls, difficulty
+
+Player feedback: the computer "tears me apart", its tackles feel like cheating (no warning, they take it even from
+behind), phones have too many buttons, no crosses / through balls to be found, passes go wrong.
+
+Research (reviews and guides; no footage this round): FC Mobile / Dream League keep phones to a stick and 2-3 buttons
+with tap / hold / swipe variants; FIFA's "contain" auto-jockey and pass receiver lock; Mario Strikers telegraphs
+tackles and rewards a dodge (the tackler is left behind); FIFA difficulty lowers the CPU's reaction speed, marking and
+attacking intelligence; players call an AI "cheating" when it bends its own rules (rubber banding) - so the easier
+levels make the computer play worse, never break the rules.
+
+| Change | Where |
+|---|---|
+| Difficulty سهل / عادي / صعب (default easy): computer skill, its tackle rate and lean-in time, its shooting accuracy, its interceptions of a person's passes; a person's keeper a bit better on easy | engine `level`, server, lobby + one-device setup |
+| Tackles on a person: a visible lean-in (0.5 / 0.4 / 0.3 s) with a red "!" over the defender; never from behind (your back shields the ball, standing or walking); a sharp turn during the lean-in beats it (he stumbles); no unseen slides except rarely on hard, from the front | engine `touches`, ai `press`, scene `warnMark` |
+| Defending assist: running at their carrier takes you to the goal-side spot in front of him (FIFA contain) | engine `personDrive` |
+| A without the ball right at a carrier = a standing tackle ("افتك"), further away = the slide | engine `personDrive` |
+| Pass receiver shown: ring + chevron on the team-mate the pass would reach (white to feet, yellow through ball, orange cross); the A button turns into "بينية" / "عرضية" when held | engine `aim` -> `FbFrame.pt`, scene `aimMark`, controls |
+| Phones: two buttons (A / B). Sprint = drag the stick out past its ring (it glows orange); the skill button is gone (dodge by turning) | controls, css |
+
+Person-like bot (24 halves, 150 ms lag, never dodges): easy 0.9 - 0.8, normal 1.1 - 1.1, hard 0.8 - 1.8 (before:
+0.8 - 1.6 at the old single level). Scenarios 42-45 added (shielding, dodge, pass target, defending assist; 45 fails
+without the assist). Not verified: a real phone, the feel by hand.

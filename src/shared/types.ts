@@ -183,6 +183,8 @@ export interface GameState {
   sport?: SportState;
   /** golf: the map the host picked in the lobby; football: the match length (FB_MODES id) */
   course?: string;
+  /** football: how hard the computer plays against people (0 easy, 1 normal, 2 hard; missing = easy) */
+  fbLevel?: 0 | 1 | 2;
   /** football while playing */
   football?: FbState;
   /** football lobby: the club character each player picked (player id -> CLUB id) and their team */
@@ -231,6 +233,7 @@ export interface ClientToServer {
   "player:pickChar": (id: string) => void;
   "player:pickTeam": (team: 0 | 1) => void;
   "host:setCourse": (id: string) => void;
+  "host:setLevel": (level: number) => void;
   "mg:submit": (data: { score: number }) => void;
   "mg:progress": (value: number) => void;
   "mg:ready": () => void;

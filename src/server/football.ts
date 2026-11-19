@@ -83,8 +83,14 @@ export class FootballGame implements GameRunner {
     // people, or the computer against itself, stay even
     const humanTeam = [0, 1].map((t) => roster.some((p) => p.team === t && p.pid && !s.players.find((x) => x.id === p.pid)?.isBot));
     const easier = (t: number) => humanTeam[1 - t] && !humanTeam[t];
-    const skills = roster.map((p) => (p.gk ? 0.55 : 0.5) + this.rng() * 0.2 - (easier(p.team) && !p.gk ? 0.1 : 0));
-    const eng = new FbEngine(roster, { seed, halfSeconds, skill: (p) => skills[p.slot] });
+    // how much weaker: easy a lot (people who never play games must be able to win), normal a notch, hard even.
+    // The keeper of a person's team is a bit better on easy (fewer soft goals against)
+    const level = s.fbLevel ?? 0;
+    const drop = [0.26, 0.12, 0][level];
+    const skills = roster.map((p) =>
+      (p.gk ? 0.55 : 0.5) + this.rng() * 0.2 - (easier(p.team) ? (p.gk ? drop * 0.8 : drop) : 0) + (p.gk && humanTeam[p.team] && level === 0 ? 0.12 : 0),
+    );
+    const eng = new FbEngine(roster, { seed, halfSeconds, skill: (p) => skills[p.slot], level });
     // development: the debug view (?fbdebug) reads the engine when the match runs in this browser (solo play)
     const g = globalThis as unknown as { location?: { search: string }; __fbEngine?: FbEngine };
     if (g.location && g.location.search.includes("fbdebug")) g.__fbEngine = eng;

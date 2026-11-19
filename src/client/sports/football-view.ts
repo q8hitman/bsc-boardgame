@@ -96,6 +96,11 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
       mode: opts.mode,
       input: () => controls.input(),
       charge: () => controls.chargeLevel(),
+      aim: () => {
+        const id = myId();
+        const v = id ? frames.latest?.pt?.[id] : undefined;
+        return v ?? -1;
+      },
       stamina: () => stamina(),
       newest: (slot) => frames.newest(slot),
       serverNow,
@@ -175,6 +180,8 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
       const ownerTeam = own >= 0 ? st.roster[own]?.team : undefined;
       const mine = ownerTeam === undefined || !me ? null : ownerTeam === me.team;
       controls.possession(mine, own >= 0 && own === slot);
+      const id = myId();
+      controls.aimKind(Math.floor(((id && f.pt?.[id]) || 0) / 100));
       if (pad) {
         hud.setMe(me ?? null, own >= 0 && own === slot ? "mine" : mine === true ? "team" : mine === false ? "them" : "loose");
         hud.setStamina(stamina());

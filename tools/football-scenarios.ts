@@ -295,11 +295,18 @@ function outcome(e: FbEngine, secs = 3.5) {
   const passed = e.ball.owner === -1;
   const e2 = world();
   freeze(e2, 1, 0, 0);
-  freeze(e2, 6, 1.6, 0);
+  freeze(e2, 6, 2.6, 0);
   give(e2, 6);
   e2.input("me", { x: 1, y: 0, a: true, b: false });
   e2.step();
-  ok(21, passed && e2.ducks[1].slide > 0, "button actions: A passes with the ball and slides without it");
+  // right at the carrier, A is a standing tackle instead (safer than a slide)
+  const e3 = world();
+  freeze(e3, 1, 0, 0);
+  freeze(e3, 6, 1.2, 0);
+  give(e3, 6);
+  e3.input("me", { x: 1, y: 0, a: true, b: false });
+  e3.step();
+  ok(21, passed && e2.ducks[1].slide > 0 && e3.ducks[1].tackle > 0, "button actions: A passes with the ball, slides without it (a standing tackle right at the carrier)");
 }
 {
   const e = world();
@@ -600,7 +607,7 @@ function outcome(e: FbEngine, secs = 3.5) {
       e.input("me", { x: jink ? -0.3 : 1, y: jink ? 1 : 0, a: false, b: false });
       e.step();
       const act = e.action(def);
-      if (act === FbAction.Tackle) leanT += DT;
+      if (act === FbAction.Lean) leanT += DT;
       if (wasTackling && def.tackle <= 0 && e.ball.owner === 1) {
         misses++;
         if (e.action(def) === FbAction.Stagger) missesStagger++;
@@ -652,6 +659,98 @@ function outcome(e: FbEngine, secs = 3.5) {
     if (two) doubled++;
   }
   ok(41, pressed === 6 && doubled >= 5, `team-mates help a person defend: pressed by a computer team-mate ${pressed}/6, doubled up with the person ${doubled}/6`);
+}
+
+{
+  // 42: a person's back to the defender shields the ball, standing or walking away: no tackle from behind
+  let fromBehind = 0;
+  let lost = 0;
+  for (let seed = 1; seed <= 8; seed++) {
+    const e = world(80 + seed);
+    for (const d of e.ducks) if (d.slot !== 1 && d.slot !== 6) freeze(e, d.slot, d.x, d.y);
+    Object.assign(e.ducks[1], { x: 0, y: 0, hx: 1, hy: 0 });
+    const def = e.ducks[6];
+    Object.assign(def, { x: -0.95, y: (seed % 3) * 0.3 - 0.3, think: 0, skill: 0.9 });
+    give(e, 1);
+    for (let i = 0; i < 30 * 3; i++) {
+      // stands still, or edges forward, always facing away from him
+      e.input("me", seed % 2 ? NONE : { x: 0.35, y: 0, a: false, b: false });
+      e.step();
+      // (he can walk round to the front: only a tackle started while he is behind counts)
+      const me = e.ducks[1];
+      const behind = ((def.x - me.x) * me.hx + (def.y - me.y) * me.hy) < -0.25 * Math.hypot(def.x - me.x, def.y - me.y);
+      if (def.tackle > 0 && Math.abs(def.tackle - (TUNE.aiWindVsPerson[1] + TUNE.tackleHit)) < 0.04 && behind) fromBehind++;
+      if (e.ball.owner !== 1) {
+        lost++;
+        break;
+      }
+    }
+  }
+  ok(42, fromBehind === 0, `your back to the defender shields the ball: ${fromBehind} tackles started from behind (${lost}/8 lost after he came round)`);
+}
+{
+  // 43: a "!" tackle coming (he leans in): a sharp turn away beats it, he stumbles
+  let dodged = 0;
+  let tries = 0;
+  for (let seed = 1; seed <= 10; seed++) {
+    const e = world(90 + seed);
+    for (const d of e.ducks) if (d.slot !== 1 && d.slot !== 6) freeze(e, d.slot, d.x, d.y);
+    Object.assign(e.ducks[1], { x: 0, y: 0, hx: 1, hy: 0 });
+    const def = e.ducks[6];
+    Object.assign(def, { x: 1.6, y: 0, hx: -1, hy: 0, think: 0, skill: 0.9 });
+    give(e, 1);
+    let turned = false;
+    for (let i = 0; i < 30 * 4; i++) {
+      // walks at him; the moment he leans in, cuts away sideways
+      if (e.action(def) === FbAction.Lean) turned = true;
+      e.input("me", turned ? { x: -0.2, y: 1, a: false, b: false } : { x: 0.4, y: 0, a: false, b: false });
+      e.step();
+      if (e.ball.owner !== 1) break;
+      if (turned && def.tackle <= 0) break;
+    }
+    if (!turned) continue;
+    tries++;
+    if (e.ball.owner === 1 && def.stagger > 0) dodged++;
+  }
+  ok(43, tries >= 6 && dodged >= tries * 0.8, `a sharp turn when he leans in ("!") beats the tackle: ${dodged}/${tries}`);
+}
+{
+  // 44: the screens are told who my pass goes to (the mate the stick points at), and a held one is a through ball
+  const e = world();
+  freeze(e, 1, 0, 0);
+  freeze(e, 2, 8, 6);
+  freeze(e, 3, 8, -6);
+  give(e, 1);
+  e.input("me", { x: 0.8, y: 0.6, a: false, b: false });
+  e.step();
+  const t1 = e.frame(0).pt?.me;
+  e.input("me", { x: 0.8, y: -0.6, a: true, b: false });
+  steps(e, Math.ceil(TUNE.lobHold / DT) + 1);
+  const t2 = e.frame(0).pt?.me;
+  ok(44, t1 === 2 && t2 === 103, `pass target shown: stick at a mate = ${t1} (2), held the other way = ${t2} (103 = through ball to 3)`);
+}
+{
+  // 45: defending assist: running straight at their carrier, the person's duck ends up goal-side of him
+  let goalSide = 0;
+  for (let k = 0; k < 6; k++) {
+    const e = world(100 + k);
+    for (const d of e.ducks) if (d.slot !== 1 && d.slot !== 6) freeze(e, d.slot, d.x, d.y);
+    const o = e.ducks[6];
+    // their carrier dribbles towards blue's goal (-x); the person comes at him from the side
+    freeze(e, 6, 0, 0, { tx: -30, ty: 0 });
+    o.think = 1e9;
+    give(e, 6);
+    Object.assign(e.ducks[1], { x: -1 + k * 0.4, y: 5, vx: 0, vy: 0 });
+    for (let i = 0; i < 75; i++) {
+      const me = e.ducks[1];
+      e.input("me", { x: o.x - me.x, y: o.y - me.y, a: false, b: false, s: true });
+      e.step();
+      if (e.ball.owner !== 6) break;
+    }
+    const me = e.ducks[1];
+    if (me.x < o.x || e.ball.owner !== 6) goalSide++;
+  }
+  ok(45, goalSide >= 5, `defending assist: running at their carrier puts you between him and your goal ${goalSide}/6`);
 }
 
 console.log(fails ? `FAIL (${fails} of ${count})` : `PASS (${count})`);

@@ -22,15 +22,19 @@ const load = <T>(k: string, d: T): T => {
 };
 
 /** one-device golf has no lobby to pick the map in: a different one each time */
-function pickCourse(room: { state: { boardId: string }; setCourse(id: string): void }) {
-  // football: the quick 3-minute match is the default with the computer
-  if (room.state.boardId === "football") return room.setCourse("quick");
+function pickCourse(room: { state: { boardId: string }; setCourse(id: string): void; setLevel(l: number): void }, level = 0) {
+  // football: the quick 3-minute match is the default with the computer, at the difficulty picked here
+  if (room.state.boardId === "football") {
+    room.setLevel(level);
+    return room.setCourse("quick");
+  }
   const courses = sportCourses(room.state.boardId);
   if (courses?.length) room.setCourse(courses[Math.floor(Math.random() * courses.length)].id);
 }
 
 export function startLocal(app: HTMLElement) {
-  const cfg = load("duck-local", { game: "island", humans: 1, names: ["لاعب ١", "لاعب ٢"], bots: 3, rounds: PARTY_DEFAULT_ROUNDS });
+  const cfg = load("duck-local", { game: "island", humans: 1, names: ["لاعب ١", "لاعب ٢"], bots: 3, rounds: PARTY_DEFAULT_ROUNDS, level: 0 });
+  if (![0, 1, 2].includes(cfg.level)) cfg.level = 0;
   const save = () => {
     try {
       localStorage.setItem("duck-local", JSON.stringify(cfg));
@@ -63,6 +67,7 @@ export function startLocal(app: HTMLElement) {
         ${cards
           ? `<div class="lp-step"><button id="bm">−</button><b>${ar(cfg.bots)}</b><button id="bp">+</button></div>`
           : `<p class="lp-sub">البورد ${ar(BOARD_SEATS)} لاعبين دايماً، فالكمبيوتر ياخذ ${ar(cfg.bots)} ${cfg.bots === 1 ? "كرسي" : "كراسي"}</p>`}
+        ${game.id === "football" ? `<h3>مستوى الكمبيوتر</h3><div class="lp-seg">${["سهل", "عادي", "صعب"].map((n, i) => `<button class="${cfg.level === i ? "on" : ""}" data-level="${i}">${n}</button>`).join("")}</div>` : ""}
         ${game.rounds ? `<h3>عدد الجولات</h3><div class="lp-step"><button id="rm">−</button><b>${ar(cfg.rounds)}</b><button id="rp">+</button></div>` : ""}
         ${cfg.humans > 1 ? `<p class="lp-keys">بالميني قيمز: اللاعب الأول يضغط <kbd>A</kbd> (وخيار ثاني <kbd>S</kbd>)، والثاني <kbd>L</kbd> (وخيار ثاني <kbd>K</kbd>). أو اضغطوا على لوحاتكم.</p>` : ""}
         <button class="big-btn green" id="go">يلا نلعب (${ar(cfg.humans + cfg.bots)} لاعبين)</button>
@@ -75,6 +80,11 @@ export function startLocal(app: HTMLElement) {
     }));
     app.querySelectorAll<HTMLButtonElement>("[data-humans]").forEach((b) => (b.onclick = () => {
       cfg.humans = Number(b.dataset.humans);
+      save();
+      setup();
+    }));
+    app.querySelectorAll<HTMLButtonElement>("[data-level]").forEach((b) => (b.onclick = () => {
+      cfg.level = Number(b.dataset.level);
       save();
       setup();
     }));
@@ -144,7 +154,7 @@ export function startLocal(app: HTMLElement) {
       await until(() => room.state.players.filter((x) => !x.isBot).length === i + 1);
     }
     room.setBoard(cfg.game);
-    pickCourse(room);
+    pickCourse(room, cfg.level);
     for (let i = 0; i < botsFor(cfg.humans); i++) room.addBot();
     if (cfg.rounds && BOARDS[cfg.game]) room.setRounds(cfg.rounds);
     room.start();
@@ -170,7 +180,7 @@ export function startLocal(app: HTMLElement) {
     startController(app.querySelector<HTMLDivElement>("#lpP0")!, room.code, { name, phone: true });
     while (room.state.players.length < 1) await new Promise((r) => setTimeout(r, 40));
     room.setBoard(cfg.game);
-    pickCourse(room);
+    pickCourse(room, cfg.level);
     for (let i = 0; i < botsFor(1); i++) room.addBot();
     if (cfg.rounds && BOARDS[cfg.game]) room.setRounds(cfg.rounds);
     room.start();

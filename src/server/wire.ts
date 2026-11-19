@@ -106,6 +106,7 @@ export function wireSocket(io: GameIO, sock: GameSocket, rooms: Map<string, Room
   sock.on("player:pickChar", (id) => me() && room()?.pickChar(me()!, String(id)));
   sock.on("player:pickTeam", (t) => me() && room()?.pickTeam(me()!, Number(t) === 1 ? 1 : 0));
   sock.on("host:setCourse", (id) => asHost((r) => r.setCourse(String(id)))());
+  sock.on("host:setLevel", (l) => asHost((r) => r.setLevel(Number(l)))());
   sock.on("mg:submit", (d) => me() && room()?.submit(me()!, Number(d?.score)));
   if (dev) {
     sock.on("dev:minigame", (id) => room()?.devMinigame(id));

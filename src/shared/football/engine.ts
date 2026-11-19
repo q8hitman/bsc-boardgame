@@ -143,7 +143,18 @@ export const TUNE = {
   aiReadPass: 0.28,
   /** a person nearest the carrier but further than this (m) from him: a computer team-mate presses meanwhile */
   helpPress: 3,
+  /** a computer duck tackling a PERSON's carrier leans in this long first (s, by difficulty easy / normal / hard): long
+   *  enough to see the "!" and turn away. Against the computer it stays tackleWind. */
+  aiWindVsPerson: [0.5, 0.4, 0.3],
+  /** how often a computer duck goes in on a person's carrier (multiplier on pokeRate, by difficulty) */
+  aiRateVsPerson: [0.4, 0.65, 0.95],
+  /** a person's carrier who turns at least this much (cos between his heading at the lean-in and at the contact)
+   *  while a tackle is coming has dodged it: the tackler stumbles */
+  dodgeCos: 0.55,
 };
+
+/** difficulty against people: 0 easy, 1 normal, 2 hard */
+export type FbLevel = 0 | 1 | 2;
 
 export type EngStage = "idle" | "kickoff" | "play" | "goal" | "pen";
 
@@ -226,6 +237,10 @@ export interface Duck {
   tdy: number;
   tackleCd: number;
   stagger: number;
+  /** the carrier's heading when this tackle started (a sharp turn since = dodged) and whether it was on a person */
+  tox: number;
+  toy: number;
+  tOnPerson: boolean;
   /** a pass going past him: the kick id he already decided about, and whether he gets a foot to it */
   cutKick: number;
   cutOk: boolean;
@@ -285,6 +300,9 @@ export interface Person {
   /** controlled slot right now and how long it has been */
   ctrl: number;
   ctrlT: number;
+  /** with the ball: who the pass would go to right now (slot + 100 * kind: 0 a pass to feet, 1 a through ball /
+   *  long ball (A held), 2 a cross), -1 = nobody / no ball. Sent to the screens to mark the receiver. */
+  aim: number;
 }
 
 export interface PenKick {
@@ -402,8 +420,11 @@ export class FbEngine {
   path: { x: number; y: number; z: number }[] = [];
   rng: () => number;
 
-  constructor(public roster: FbPlayer[], opts: { seed?: number; halfSeconds: number; skill?: (p: FbPlayer) => number }) {
+  /** difficulty against people (computer ducks vs a person's carrier): 0 easy, 1 normal, 2 hard */
+  level: FbLevel = 1;
+  constructor(public roster: FbPlayer[], opts: { seed?: number; halfSeconds: number; skill?: (p: FbPlayer) => number; level?: FbLevel }) {
     this.rng = mulberry32(opts.seed ?? 1);
+    this.level = opts.level ?? 1;
     this.halfSeconds = opts.halfSeconds;
     const roleOrder = [3, 1, 2, 0];
     const outfieldN = [0, 0];
@@ -414,7 +435,7 @@ export class FbEngine {
         x: 0, y: 0, vx: 0, vy: 0, hx: 1, hy: 0, face: 1, tx: 0, ty: 0, run: 0, think: (p.slot % 5) * 0.03, spotT: 0, spotX: 0, spotY: 0,
         kickT: 0, slide: 0, sdx: 0, sdy: 0, slideCd: 0, fall: 0, kneel: 0, lock: 0, noPick: 0, hasT: 0, dive: 0, dvx: 0, dvy: 0,
         stamina: 1, tired: false, sprinting: false, wantSprint: false, trick: 0, tkx: 0, tky: 0, trickCd: 0, dash: 0, dkx: 0, dky: 0, dashCd: 0, trap: 0, touch: 0,
-        saveShot: -1, saveOk: false, charge: -1, celebrate: false, mope: false, wantBy: -1, wantUntil: 0, lunge: 0, shortX: 0, shortY: 0, shortT: 0, tackle: 0, tdx: 1, tdy: 0, tackleCd: 0, stagger: 0, cutKick: -1, cutOk: false,
+        saveShot: -1, saveOk: false, charge: -1, celebrate: false, mope: false, wantBy: -1, wantUntil: 0, lunge: 0, shortX: 0, shortY: 0, shortT: 0, tackle: 0, tdx: 1, tdy: 0, tackleCd: 0, stagger: 0, tox: 1, toy: 0, tOnPerson: false, cutKick: -1, cutOk: false,
       };
     });
     this.ctrlBy = this.ducks.map(() => null);
@@ -442,7 +463,7 @@ export class FbEngine {
 
   // ------------------------------------------------------------------ people
   addPerson(pid: string, team: FbTeam, own: number) {
-    this.people.set(pid, { pid, team, own, active: true, x: 0, y: 0, a: false, b: false, aDown: false, aUp: false, aT: -1, bDown: false, bUp: false, s: false, k: false, kDown: false, ctrl: own, ctrlT: 0 });
+    this.people.set(pid, { pid, team, own, active: true, x: 0, y: 0, a: false, b: false, aDown: false, aUp: false, aT: -1, bDown: false, bUp: false, s: false, k: false, kDown: false, ctrl: own, ctrlT: 0, aim: -1 });
   }
   setActive(pid: string, active: boolean) {
     const p = this.people.get(pid);
@@ -856,7 +877,7 @@ export class FbEngine {
     } else if (d.tackle > 0) {
       // a standing tackle: a step in towards the ball while leaning, planted for the contact
       d.tackle -= dt;
-      const v = d.tackle > TUNE.tackleHit ? 3 : 1.2;
+      const v = d.tackle > TUNE.tackleHit ? (d.tOnPerson ? 1.6 : 3) : 1.2;
       d.vx = d.tdx * v;
       d.vy = d.tdy * v;
       if (d.tackle <= 0) {
@@ -1080,6 +1101,31 @@ export class FbEngine {
         }
       }
     }
+    // defending assist (like FIFA's contain): running at the other team's carrier, he goes to the goal-side spot in
+    // front of him instead of chasing the ball itself, so a beginner who just runs at the ball stays between him and
+    // the goal and the tackle comes by itself; a stick pointing elsewhere is obeyed
+    {
+      const ow = this.ball.owner >= 0 ? this.ducks[this.ball.owner] : null;
+      if (ow && ow.team !== d.team && m >= 0.3 && !d.gk && !p.aDown) {
+        const cx = ow.x - d.x;
+        const cy = ow.y - d.y;
+        const cd = hyp(cx, cy);
+        if (cd < 7 && cd > 0.2 && (jx * cx + jy * cy) / (cd * Math.min(1, m)) > 0.5) {
+          const gx = -this.dir(d.team) * HALF_L - ow.x;
+          const gy = -ow.y;
+          const gm = hyp(gx, gy) || 1;
+          const off = cd > 2.5 ? 1.2 : 0.55;
+          const tx = ow.x + ow.vx * 0.3 + (gx / gm) * off - d.x;
+          const ty = ow.y + ow.vy * 0.3 + (gy / gm) * off - d.y;
+          const tm = hyp(tx, ty);
+          if (tm > 0.15) {
+            const k = Math.min(1, m);
+            jx = (tx / tm) * k;
+            jy = (ty / tm) * k;
+          }
+        }
+      }
+    }
     if (m >= 0.3) {
       // turn on the spot even before the duck picks up speed (so passes go where the stick points)
       const mm = Math.min(1, m);
@@ -1098,9 +1144,24 @@ export class FbEngine {
         o.wantBy = d.slot;
         o.wantUntil = this.time + 1.5;
         o.think = 0;
-      } else if (d.slideCd <= 0) {
-        const [ax, ay] = this.slideAim(d, d.hx, d.hy);
-        this.slideStart(d, ax, ay);
+      } else {
+        // without the ball: right at the carrier = a standing tackle (safe), further = a slide
+        const o = b.owner >= 0 ? this.ducks[b.owner] : null;
+        const od = o ? hyp(o.x - d.x, o.y - d.y) : 99;
+        if (o && od < 1.7 && d.tackle <= 0 && d.tackleCd <= 0 && d.lock <= 0 && d.fall <= 0 && d.slide <= 0) {
+          const ax = b.x + b.vx * TUNE.tackleWind - d.x;
+          const ay = b.y + b.vy * TUNE.tackleWind - d.y;
+          const am = hyp(ax, ay) || 1;
+          d.tdx = ax / am;
+          d.tdy = ay / am;
+          d.tOnPerson = false;
+          d.tackle = TUNE.tackleWind + TUNE.tackleHit;
+          d.hx = d.tdx;
+          d.hy = d.tdy;
+        } else if (d.slideCd <= 0) {
+          const [ax, ay] = this.slideAim(d, d.hx, d.hy);
+          this.slideStart(d, ax, ay);
+        }
       }
     }
     if (p.aT >= 0) {
@@ -1117,6 +1178,25 @@ export class FbEngine {
       }
     }
     p.aUp = false;
+    p.aim = -1;
+    if (mine) {
+      const px = m >= 0.3 ? jx : d.hx;
+      const py = m >= 0.3 ? jy : d.hy;
+      if (p.aT >= TUNE.lobHold) {
+        const s = this.dir(d.team);
+        const toLine = HALF_L - d.x * s;
+        const towardsBox = px * s > -0.2 && -Math.sign(d.y) * py > -0.2;
+        if (toLine < 20 && Math.abs(d.y) > 6 && towardsBox) {
+          const inBox = this.ducks
+            .filter((q) => q.team === d.team && q !== d && !q.gk && q.fall <= 0 && HALF_L - q.x * s < 15 && Math.abs(q.y) < 9)
+            .sort((q, r) => Math.abs(q.y) - Math.abs(r.y));
+          p.aim = inBox[0] ? inBox[0].slot + 200 : -1;
+        } else {
+          const t = this.pickPass(d, px, py);
+          p.aim = t >= 0 ? t + 100 : -1;
+        }
+      } else p.aim = this.pickPass(d, px, py, 26);
+    }
     if (p.kDown) {
       p.kDown = false;
       const kx = m >= 0.3 ? jx : 0;
@@ -1367,6 +1447,8 @@ export class FbEngine {
   /** shot at the goal this duck attacks: power 0..1, aimY across the mouth, spread multiplier, bend -1..1 (the ball
    *  starts off line and curls in towards aimY). Strong shots are much faster and dip; weak ones are slow and low. */
   shoot(d: Duck, power: number, aimY: number, spread = 1, bend = 0, person = false) {
+    // the computer shooting at a person's goal is less accurate on easy / normal (people must not be shot to bits)
+    if (!person && this.teamHasPerson((1 - d.team) as FbTeam)) spread *= [1.6, 1.25, 1][this.level];
     const b = this.ball;
     if (b.owner >= 0 && b.owner !== d.slot) return;
     const side = this.stage === "pen" && this.pen ? this.pen.side : this.dir(d.team);
@@ -1988,8 +2070,8 @@ export class FbEngine {
           if (hyp(b.x - fx, b.y - fy) > TUNE.tackleReach) continue;
           d.tackle = 0;
           d.tackleCd = TUNE.tackleCd;
-          if (o.trick > 0) {
-            // he goes for it and the skill move takes the ball away from him
+          if (o.trick > 0 || (d.tOnPerson && o.hx * d.tox + o.hy * d.toy < TUNE.dodgeCos)) {
+            // he goes for it and the skill move (or a sharp turn away) takes the ball away from him
             this.beaten(d);
             continue;
           }
@@ -2017,8 +2099,20 @@ export class FbEngine {
         const bd = hyp(b.x - d.x, b.y - d.y);
         if (bd > TUNE.tackleStart) continue;
         let go: boolean;
+        const onPerson = !!this.ctrlBy[o.slot] && !this.ctrlBy[d.slot];
         if (this.ctrlBy[d.slot]) go = bd < TUNE.pokeR;
-        else {
+        else if (onPerson) {
+          // a person's carrier: never from behind (his back to the defender shields the ball, running or standing),
+          // never a dice roll at his feet: the defender has to be in front or at his side
+          const ox = d.x - o.x;
+          const oy = d.y - o.y;
+          const om = hyp(ox, oy) || 1;
+          const front = (ox * o.hx + oy * o.hy) / om;
+          if (front < -0.25) continue;
+          const block = bd < TUNE.duckR + BALL_R + 0.2 ? 1.8 : 1;
+          const exposed = o.sprinting ? TUNE.sprintPokeFactor : 1;
+          go = this.rng() < TUNE.pokeRate * TUNE.aiRateVsPerson[this.level] * (0.5 + d.skill) * block * exposed * dt;
+        } else {
           // dribbling straight into a duck's feet invites the tackle; a sprinting carrier is exposed; one running
           // away from a defender behind him keeps his body between them
           const block = bd < TUNE.duckR + BALL_R + 0.2 ? TUNE.blockFactor : 1;
@@ -2029,13 +2123,19 @@ export class FbEngine {
           go = this.rng() < TUNE.pokeRate * (0.5 + d.skill) * block * exposed * shield * dt;
         }
         if (go) {
-          // he aims where the ball will be when his boot gets there
-          const ax = b.x + b.vx * TUNE.tackleWind - d.x;
-          const ay = b.y + b.vy * TUNE.tackleWind - d.y;
+          // he aims where the ball will be when his boot gets there (against a person he reads only half of the run:
+          // keep going and it still reaches you, turn and it misses)
+          const wind = onPerson ? TUNE.aiWindVsPerson[this.level] : TUNE.tackleWind;
+          const lead = onPerson ? wind * 0.5 : wind;
+          const ax = b.x + b.vx * lead - d.x;
+          const ay = b.y + b.vy * lead - d.y;
           const am = hyp(ax, ay) || 1;
           d.tdx = ax / am;
           d.tdy = ay / am;
-          d.tackle = TUNE.tackleWind + TUNE.tackleHit;
+          d.tox = o.hx;
+          d.toy = o.hy;
+          d.tOnPerson = onPerson;
+          d.tackle = wind + TUNE.tackleHit;
           d.hx = d.tdx;
           d.hy = d.tdy;
         }
@@ -2095,7 +2195,9 @@ export class FbEngine {
         if (d.cutKick !== b.kick) {
           d.cutKick = b.kick;
           const rel = hyp(b.vx - d.vx, b.vy - d.vy);
-          d.cutOk = this.rng() < clamp(1.2 - rel / 11, 0.12, 0.92) * (0.75 + 0.35 * d.skill);
+          // (a computer duck cutting out a person's team's pass: less often on easy / normal)
+          const vsPerson = !this.ctrlBy[d.slot] && this.teamHasPerson(b.lastTeam as FbTeam) ? [0.6, 0.8, 1][this.level] : 1;
+          d.cutOk = this.rng() < clamp(1.2 - rel / 11, 0.12, 0.92) * (0.75 + 0.35 * d.skill) * vsPerson;
         }
         if (!d.cutOk) continue;
       }
@@ -2236,7 +2338,7 @@ export class FbEngine {
     if (d.celebrate) return FbAction.Celebrate;
     if (d.mope) return FbAction.Idle;
     if (d.trick > 0) return FbAction.Skill;
-    if (d.tackle > 0) return FbAction.Tackle;
+    if (d.tackle > 0) return d.tackle > TUNE.tackleHit ? FbAction.Lean : FbAction.Tackle;
     if (d.stagger > 0) return FbAction.Stagger;
     if (d.trap > 0) return FbAction.Trap;
     if (d.kickT > 0) return FbAction.Kick;
@@ -2256,6 +2358,9 @@ export class FbEngine {
     if (this.people.size) {
       const st = this.stamina();
       if (Object.keys(st).length) f.st = st;
+      let pt: Record<string, number> | undefined;
+      for (const q of this.people.values()) if (q.active && q.aim >= 0 && this.ball.owner === q.ctrl) (pt ??= {})[q.pid] = q.aim;
+      if (pt) f.pt = pt;
     }
     return f;
   }

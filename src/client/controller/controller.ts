@@ -350,7 +350,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     stopSportPad();
     if (s.phase === "lobby") pad.reset();
     const mine = isMyTurn(s);
-    const k = [s.phase, s.turnIdx, s.round, mine, p.items.join(), s.minigame?.startAt ?? 0, s.minigame?.ready?.[me] ? "r" : "", s.phase === "lobby" ? JSON.stringify([s.players.map((x) => x.name + x.isBot + x.duck + (x.profileId ?? "")), s.maxRounds, p.isHost, s.boardId, s.screen, s.course]) : "", s.pendingChoice?.playerId, s.pendingBuy?.playerId, s.pendingTarget?.playerId].join("|");
+    const k = [s.phase, s.turnIdx, s.round, mine, p.items.join(), s.minigame?.startAt ?? 0, s.minigame?.ready?.[me] ? "r" : "", s.phase === "lobby" ? JSON.stringify([s.players.map((x) => x.name + x.isBot + x.duck + (x.profileId ?? "")), s.maxRounds, p.isHost, s.boardId, s.screen, s.course, s.fbLevel]) : "", s.pendingChoice?.playerId, s.pendingBuy?.playerId, s.pendingTarget?.playerId].join("|");
     if (k === key) return;
     const prevPhase = key.split("|")[0];
     key = k;
@@ -701,7 +701,9 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
   function coursePicker(s: GameState) {
     const courses = isSport(s) ? sportCourses(s.boardId) : undefined;
     if (!courses || courses.length < 2) return "";
-    return `<p>${s.boardId === "football" ? "مدة المباراة" : "اختار الملعب"}</p><div class="cpick">${courses.map((c) => `<button class="${s.course === c.id ? "on" : ""}" data-course="${c.id}">${esc(c.name)}</button>`).join("")}</div>`;
+    const lv = s.fbLevel ?? 0;
+    const level = s.boardId === "football" ? `<p>مستوى الكمبيوتر</p><div class="cpick">${["سهل", "عادي", "صعب"].map((t, i) => `<button class="${lv === i ? "on" : ""}" data-level="${i}">${t}</button>`).join("")}</div>` : "";
+    return `<p>${s.boardId === "football" ? "مدة المباراة" : "اختار الملعب"}</p><div class="cpick">${courses.map((c) => `<button class="${s.course === c.id ? "on" : ""}" data-course="${c.id}">${esc(c.name)}</button>`).join("")}</div>${level}`;
   }
 
   /** Host chooses the board in the lobby. More than 4 people: only the card game fits. */
@@ -721,6 +723,10 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       buzz(20);
       sock.emit("host:setCourse", b.dataset.course!);
     }));
+    main.querySelectorAll<HTMLButtonElement>("[data-level]").forEach((b) => (b.onclick = () => {
+      buzz(20);
+      sock.emit("host:setLevel", Number(b.dataset.level));
+    }));
     main.querySelectorAll<HTMLButtonElement>("[data-board]").forEach((b) => (b.onclick = () => {
       buzz(20);
       sock.emit("host:setBoard", b.dataset.board!);
@@ -739,7 +745,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     top.innerHTML = `${icon("crown", 48)}<div class="nm">${esc(s.organizer!.name)}</div><div class="st"><span>المنظم</span></div>`;
     wrap.style.setProperty("--duck-bg", "#B9A6FF"); // contrasts with the yellow crown
     const cur = s.players.find((x) => x.id === s.order[s.turnIdx]);
-    const k = ["org", s.phase, s.turnIdx, s.round, s.maxRounds, s.boardId, s.course, s.players.map((x) => x.name + x.duck + x.stars + x.crumbs + x.isBot + x.node).join(), s.minigame?.id ?? "", JSON.stringify(s.table?.counts ?? {}), JSON.stringify(s.sport?.total ?? {})].join("|");
+    const k = ["org", s.phase, s.turnIdx, s.round, s.maxRounds, s.boardId, s.course, s.fbLevel, s.players.map((x) => x.name + x.duck + x.stars + x.crumbs + x.isBot + x.node).join(), s.minigame?.id ?? "", JSON.stringify(s.table?.counts ?? {}), JSON.stringify(s.sport?.total ?? {})].join("|");
     if (k === key) return;
     key = k;
     mgCleanup?.();

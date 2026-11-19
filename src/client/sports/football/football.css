@@ -276,3 +276,12 @@
 .fb-paused small { opacity: .7; font-size: 13px; }
 .fb-resume { border: 0; border-radius: 16px; padding: 12px 28px; background: #1fb85a; color: #fff; font-family: inherit; font-weight: 800; font-size: 24px; line-height: 1; box-shadow: 0 5px 0 #127a3a; cursor: pointer; touch-action: none; }
 .fb-ctrl.desk .fb-pause, .fb-ctrl.desk .fb-paused { pointer-events: auto; }
+
+/* phones: two buttons only. Sprint = push the stick out past its ring (the knob glows), the skill move = a sharp
+   turn when a "!" defender leans in */
+.fb-ctrl.touch .fbb.s, .fb-ctrl.touch .fbb.k { display: none; }
+.joy.sprint { box-shadow: 0 0 0 4px rgba(255, 154, 42, .55), 0 0 18px rgba(255, 154, 42, .6); }
+.joy.sprint .knob { background: #ff9a2a; }
+.fbb.a.long { background: #ffb21f !important; color: #3a2400; }
+.fbb.a.long b { color: #fff; }
+.fb-ctrl .joyhint small { display: block; font-size: .78em; opacity: .85; margin-top: .25em; }

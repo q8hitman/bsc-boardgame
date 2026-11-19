@@ -42,6 +42,8 @@ export interface SceneOpts {
   charge: () => number;
   /** my sprint stamina 0..1 (undefined = not sent) */
   stamina: () => number | undefined;
+  /** who my pass would reach right now (slot + 100 * kind, -1 = nobody), from the newest snapshot */
+  aim: () => number;
   /** a slot at the newest snapshot (for correcting the prediction) */
   newest: (slot: number) => { x: number; y: number; vx: number; vy: number; act: number; t: number } | null;
   serverNow: () => number;
@@ -1003,6 +1005,10 @@ export class FootballScene extends Phaser.Scene {
     const pr = this.predict(mySlot, pose.owner, dt);
     const charge = mySlot >= 0 && pose.owner === mySlot ? this.o.charge() : -1;
     const over = this.stage === "over" && this.result !== undefined;
+    const aimV = mySlot >= 0 && pose.owner === mySlot ? this.o.aim() : -1;
+    const aimSlot = aimV >= 0 ? aimV % 100 : -1;
+    const aimKind = aimV >= 0 ? Math.floor(aimV / 100) : 0;
+    const myTeam = mySlot >= 0 ? this.teamOf(mySlot) : -1;
 
     for (const d of this.ducks) {
       const i = d.slot * 4;
@@ -1143,10 +1149,16 @@ export class FootballScene extends Phaser.Scene {
           }
           break;
         }
+        case FbAction.Lean: {
+          // about to tackle: weight back, eyes on the ball (a "!" over him when it is coming at my team)
+          mf = M_WINDUP;
+          X -= Math.round(face * Math.min(1, since * 8) * 2);
+          break;
+        }
         case FbAction.Tackle: {
-          // a standing tackle: weight back for a beat (you can see it coming), then the boot stabs in at the ball
-          mf = since < TUNE.tackleWind ? M_WINDUP : M_SLIDEIN;
-          if (since >= TUNE.tackleWind && time - d.dustAt > 60) {
+          // the boot stabs in at the ball
+          mf = M_SLIDEIN;
+          if (time - d.dustAt > 60) {
             d.dustAt = time;
             this.dust.explode(2, X + face * 14, Y);
           }
@@ -1236,6 +1248,11 @@ export class FootballScene extends Phaser.Scene {
         d.marker.setVisible(false);
       }
       if (mine) this.staminaBar(X, Y, act === FbAction.Sprint);
+      // the team-mate my pass would reach: a ring at his feet and a chevron over him (white = to feet, yellow =
+      // through / long ball, orange = cross)
+      if (aimSlot === d.slot) this.aimMark(X, Y + Math.min(0, oy), aimKind, time);
+      // a defender about to tackle my team's carrier: a "!" over him (you can turn away)
+      if (act === FbAction.Lean && myTeam >= 0 && d.team !== myTeam && pose.owner >= 0 && this.teamOf(pose.owner) === myTeam) this.warnMark(X, Y - 94 + Math.min(0, oy), since, time);
       const kind = mine ? "me" : pid !== undefined || d.human ? "human" : "cpu";
       if (ctlKey !== this.lastCtl || !d.label || this.zoomChanged) this.labelFor(d, kind);
       d.label?.setPosition(X, Y - (pid !== undefined ? (mine ? 88 : 84) : 74) + (kneel ? oy : Math.min(0, oy)));
@@ -1383,6 +1400,31 @@ export class FootballScene extends Phaser.Scene {
     const col = v < 0.08 ? (Math.floor(this.time.now / 120) % 2 ? 0xe8452c : 0x7a1d14) : v < 0.35 ? 0xff9a2a : 0x3ddc5a;
     g.fillStyle(col, 1).fillRect(x0, y0, Math.round(w * clamp(v, 0, 1)), 3);
     g.fillStyle(0xffffff, 0.35).fillRect(x0, y0, Math.round(w * clamp(v, 0, 1)), 1);
+  }
+
+  private teamOf(slot: number) {
+    return this.ducks[slot]?.team ?? -1;
+  }
+  /** the receiver of my pass: a pulsing ring at his feet and a chevron over his head */
+  private aimMark(X: number, Y: number, kind: number, time: number) {
+    const g = this.fxG;
+    const col = kind === 2 ? 0xff8a2a : kind === 1 ? 0xffd84a : 0xffffff;
+    const p = 0.5 + 0.5 * Math.sin(time / 110);
+    g.lineStyle(2, col, 0.55 + 0.4 * p).strokeEllipse(X, Y - 1, 30 + p * 4, 12 + p * 1.5);
+    const cy = Y - 96 - Math.round(p * 3);
+    g.fillStyle(0x0b0d1c, 0.8).fillTriangle(X - 8, cy - 1, X + 8, cy - 1, X, cy + 9);
+    g.fillStyle(col, 1).fillTriangle(X - 6, cy, X + 6, cy, X, cy + 7);
+  }
+  /** a defender about to tackle: a red "!" bubble over him, popping in */
+  private warnMark(X: number, Y: number, since: number, time: number) {
+    const g = this.fxG;
+    const k = Math.min(1, since * 10);
+    const h = Math.round(14 * k);
+    if (h < 3) return;
+    const blink = Math.floor(time / 90) % 2 === 0;
+    g.fillStyle(0x0b0d1c, 0.9).fillRoundedRect(X - 7, Y - h - 4, 14, h + 6, 3);
+    g.fillStyle(blink ? 0xff3b2a : 0xffd84a, 1).fillRoundedRect(X - 5, Y - h - 2, 10, h + 2, 2);
+    g.fillStyle(0xffffff, 1).fillRect(X - 1, Y - h + 1, 2, Math.max(1, h - 6)).fillRect(X - 1, Y - 3, 2, 2);
   }
 
   /** the skill move's whoosh: a white arc sweeping round the feet */
