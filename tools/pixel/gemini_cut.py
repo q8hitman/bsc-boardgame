@@ -9,7 +9,14 @@ src, refp, out = sys.argv[1], sys.argv[2], sys.argv[3]
 im = np.array(Image.open(src).convert("RGB")).astype(int)
 H, W, _ = im.shape
 r, g, b = im[..., 0], im[..., 1], im[..., 2]
-bg = ((r > 140) & (b > 140) & (g < 130) & (abs(r - b) < 90)) | ((r - g > 75) & (b - g > 75) & (abs(r - b) < 70))
+# the background colour: the median of the border pixels (magenta or green, whatever was asked for)
+border = np.concatenate([im[0], im[-1], im[:, 0], im[:, -1]])
+bgc = np.median(border, axis=0)
+if bgc[0] > 150 and bgc[2] > 150 and bgc[1] < 120:
+    bg = ((r > 140) & (b > 140) & (g < 130) & (abs(r - b) < 90)) | ((r - g > 75) & (b - g > 75) & (abs(r - b) < 70))
+else:
+    bg = ((im - bgc) ** 2).sum(-1) < 95 ** 2
+print("background", bgc)
 fg = ~bg
 
 # connected components on a coarse grid (fast), then merge small bits into the nearest big one
@@ -76,7 +83,7 @@ for k, (x0, x1, y0, y1, i, _) in enumerate(comps):
     dark = pal[(pal.sum(1)).argmin()]
     pad = np.pad(al, 1)
     edge = al & ~(pad[:-2, 1:-1] & pad[2:, 1:-1] & pad[1:-1, :-2] & pad[1:-1, 2:])
-    tint = (snapped[..., 0] - snapped[..., 1] > 30) & (snapped[..., 2] - snapped[..., 1] > 30)
+    tint = ((snapped[..., 0] - snapped[..., 1] > 30) & (snapped[..., 2] - snapped[..., 1] > 30)) if bgc[1] < 120 else ((snapped[..., 1] - snapped[..., 0] > 40) & (snapped[..., 1] - snapped[..., 2] > 40))
     snapped[edge & tint] = dark
     outp = np.zeros((h, w, 4), np.uint8)
     outp[..., :3] = snapped

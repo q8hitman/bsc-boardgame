@@ -42,8 +42,13 @@ for team in ("blue", "red"):
                         f[y, x, :3] = cmap.get(tuple(f[y, x, :3]), tuple(f[y, x, :3]))
         fx0, fx1, fy0, fy1 = bbox(f)
         f = f[fy0 : fy1 + 1, fx0 : fx1 + 1]
-        h, w = f.shape[:2]
         for s, idx, fw in targets:
+            ff = f
+            h, w = ff.shape[:2]
+            k = min(1.0, 71 / h, (fw - 1) / w)
+            if k < 1:
+                ff = np.array(Image.fromarray(ff).resize((max(1, int(w * k)), max(1, int(h * k))), Image.NEAREST))
+                h, w = ff.shape[:2]
             st = strips[s]
             old = st[:, idx * fw : (idx + 1) * fw].copy()
             ox0, ox1, oy0, oy1 = bbox(old)
@@ -53,7 +58,7 @@ for team in ("blue", "red"):
             x = max(0, min(fw - w, x))
             y = max(0, min(72 - h, y))
             new = np.zeros_like(old)
-            new[y : y + h, x : x + w] = f
+            new[y : y + h, x : x + w] = ff
             st[:, idx * fw : (idx + 1) * fw] = new
     for s, st in strips.items():
         Image.fromarray(st).save(f"{A}/{s}/{char}-{team}.png")

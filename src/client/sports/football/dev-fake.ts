@@ -49,8 +49,9 @@ export class FakeMatch {
       for (let i = 0; i < 5; i++) {
         const slot = team * 5 + i;
         const h = i > 0 ? hs[i - 1] : undefined;
-        const c = h ? { id: h.char, name: h.name } : pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-        roster.push({ slot, team, char: c.id, name: h?.name ?? c.name, gk: i === 0, pid: h?.pid });
+        // (like the real server: every duck carries its character's name, people's own names are not shown)
+        const c = h ? { id: h.char, name: CLUB.find((k) => k.id === h.char)?.name ?? h.name } : pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+        roster.push({ slot, team, char: c.id, name: c.name, gk: i === 0, pid: h?.pid });
       }
     }
     this.st = {
