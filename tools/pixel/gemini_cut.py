@@ -48,6 +48,9 @@ for i in range(1, n + 1):
     comps.append([xs.min() * S, xs.max() * S + S, ys.min() * S, ys.max() * S + S, i, sizes[i]])
 comps.sort(key=lambda c: c[0])
 print("figures:", len(comps), [(c[0], c[1], c[2], c[3]) for c in comps])
+if len(comps) != 6:
+    print("NOT 6 FIGURES: not used")
+    sys.exit(2)
 
 # the reference: palette and standing height
 ref = Image.open(refp).convert("RGBA")

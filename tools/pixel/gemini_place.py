@@ -1,6 +1,7 @@
 """Put the cut Gemini frames into a character's moves / extra strips (blue), aligned to the old frames (same bottom,
 same centre), and make the red kit by mapping blue-kit colours to red-kit colours (learnt from the two base strips).
 Usage: python place.py <char> <prefix> <assets dir>"""
+import os
 import sys
 import numpy as np
 from PIL import Image
@@ -38,7 +39,10 @@ print("colour map", len(cmap), "changed", sum(1 for k, v in cmap.items() if k !=
 
 for team in ("blue", "red"):
     strips = {s: np.array(Image.open(f"{A}/{s}/{char}-{team}.png").convert("RGBA")) for s in ("moves", "extra")}
+    only = [int(v) for v in os.environ.get("ONLY", "").split(",") if v.strip()]
     for k, targets in PLAN.items():
+        if only and k not in only:
+            continue
         f = np.array(Image.open(f"{pre}_{k}.png").convert("RGBA"))
         if team == "red":
             f = f.copy()
