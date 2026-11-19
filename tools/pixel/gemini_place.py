@@ -15,12 +15,16 @@ def bbox(a):
     return xs.min(), xs.max(), ys.min(), ys.max()
 
 
-# blue -> red colour map from the base strips (same art, other kit)
-bb = np.array(Image.open(f"{A}/{char}-blue.png").convert("RGBA"))
-rb = np.array(Image.open(f"{A}/{char}-red.png").convert("RGBA"))
+# blue -> red colour map from the base strips (same art, other kit); a head-swap also learns the body template's map
+srcs = [char] + sys.argv[4:5]
+pairs = []
+for sc in srcs:
+    bb = np.array(Image.open(f"{A}/{sc}-blue.png").convert("RGBA"))
+    rb = np.array(Image.open(f"{A}/{sc}-red.png").convert("RGBA"))
+    pairs += list(zip(bb.reshape(-1, 4), rb.reshape(-1, 4)))
 cmap = {}
 votes = {}
-for c1, c2 in zip(bb.reshape(-1, 4), rb.reshape(-1, 4)):
+for c1, c2 in pairs:
     if c1[3] == 0:
         continue
     k = tuple(c1[:3])
@@ -28,6 +32,8 @@ for c1, c2 in zip(bb.reshape(-1, 4), rb.reshape(-1, 4)):
     votes[k][tuple(c2[:3])] += 1
 for k, v in votes.items():
     cmap[k] = max(v, key=v.get)
+keys = [tuple(int(v) for v in k) for k in cmap]
+cmap = {tuple(int(v) for v in k): tuple(int(v) for v in w) for k, w in cmap.items()}
 print("colour map", len(cmap), "changed", sum(1 for k, v in cmap.items() if k != v))
 
 for team in ("blue", "red"):
@@ -39,7 +45,16 @@ for team in ("blue", "red"):
             for y in range(f.shape[0]):
                 for x in range(f.shape[1]):
                     if f[y, x, 3]:
-                        f[y, x, :3] = cmap.get(tuple(f[y, x, :3]), tuple(f[y, x, :3]))
+                        c0 = tuple(int(v) for v in f[y, x, :3])
+                        if c0 not in cmap:
+                            # a colour from another character's body (a head-swap): the nearest known kit colour
+                            near = min(keys, key=lambda k: sum((a - b) ** 2 for a, b in zip(k, c0)))
+                            if sum((a - b) ** 2 for a, b in zip(near, c0)) < 60 ** 2 and cmap[near] != near:
+                                cmap[c0] = tuple(int(v) - int(n0) + int(m0) for v, n0, m0 in zip(c0, near, cmap[near]))
+                                cmap[c0] = tuple(max(0, min(255, v)) for v in cmap[c0])
+                            else:
+                                cmap[c0] = c0
+                        f[y, x, :3] = cmap[c0]
         fx0, fx1, fy0, fy1 = bbox(f)
         f = f[fy0 : fy1 + 1, fx0 : fx1 + 1]
         for s, idx, fw in targets:
