@@ -75,6 +75,14 @@ export class FootballControls {
   /** solo play: the match can be paused (P / Esc / the pause button); while paused nothing else is sent */
   private paused = false;
   private canPause = false;
+  /** the "how to play" card (the ? button) and the one-time tips */
+  private guide!: HTMLDivElement;
+  private tipEl!: HTMLDivElement;
+  private guideOpen = false;
+  private guidePaused = false;
+  private tipTimer = 0;
+  private tipUntil = 0;
+  private sprintTipAt = 0;
 
   constructor(root: HTMLElement, private big: boolean) {
     this.touch = isTouch();
@@ -82,7 +90,7 @@ export class FootballControls {
     this.el.className = `fb-ctrl hidden${big ? " big" : ""}${this.touch ? " touch" : " desk"}`;
     this.el.innerHTML = `
       <div class="joyzone"><div class="joyhint">اسحب هني للحركة<small>لبعيد = ركض</small></div></div>
-      <div class="joy hidden"><div class="knob"></div></div>
+      <div class="joy hidden"><i class="sprintring"><em>ركض »</em></i><div class="knob"></div></div>
       <div class="btns">
         <button class="fbb a" type="button"><span class="k">A</span><b>افتك</b></button>
         <button class="fbb b" type="button"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" pathLength="100"/></svg><span class="k">B</span><b>بدّل</b></button>
@@ -91,6 +99,9 @@ export class FootballControls {
       </div>
       <div class="fb-keys" dir="rtl"></div>
       <button class="fb-pause" type="button" title="إيقاف مؤقت (P)">❚❚</button>
+      <button class="fb-help" type="button" title="شلون ألعب؟">؟</button>
+      <div class="fb-tip" dir="rtl"></div>
+      <div class="fb-guide" dir="rtl"></div>
       <div class="fb-paused" dir="rtl"><div><b>موقّفة</b><button class="fb-resume" type="button">▶ كمّل</button><small>P أو Esc</small></div></div>`;
     root.appendChild(this.el);
     this.zone = this.el.querySelector(".joyzone")!;
@@ -113,6 +124,18 @@ export class FootballControls {
         this.togglePause();
       });
     }
+    this.guide = this.el.querySelector(".fb-guide")!;
+    this.tipEl = this.el.querySelector(".fb-tip")!;
+    this.el.querySelector<HTMLButtonElement>(".fb-help")!.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleGuide();
+    });
+    this.guide.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleGuide(false);
+    });
     // click an action to give it a new key / pad button
     this.legend.addEventListener("click", (e) => {
       const t = e.target as HTMLElement;
@@ -210,8 +233,15 @@ export class FootballControls {
     if (!cb && this.cb && this.held()) this.cb({ x: 0, y: 0, a: false, b: false, s: false, k: false });
     this.cb = cb;
     this.el.classList.toggle("hidden", !cb);
-    if (!cb) this.releaseAll();
-    else if (!this.touch) {
+    if (cb && !this.sprintTipAt) {
+      this.sprintTipAt = window.setTimeout(() => {
+        if (this.cb) this.tip("sprint", this.touch ? "<b>»</b> للركض: اسحب العصا لبرّا الدايرة" : `<b>»</b> للركض: اضغط ${this.keyName("s")} وانت تتحرك`);
+      }, 2500);
+    }
+    if (!cb) {
+      this.releaseAll();
+      this.toggleGuide(false);
+    } else if (!this.touch) {
       // the page must not keep focus on a button (Space would click it) or scroll: the window gets the keys
       (document.activeElement as HTMLElement | null)?.blur?.();
     }
@@ -231,6 +261,77 @@ export class FootballControls {
     const lb = this.el.querySelector(".lb");
     if (la) la.textContent = team ? "تمرير (مطوّل = بينية / عرضية)" : "افتك (قريب) · زحلقة (بعيد)";
     if (lb) lb.textContent = team ? "تسديد (اضغط مطوّل)" : "بدّل اللاعب";
+  }
+
+  /** the first name of an action's key ("Shift", "E") */
+  private keyName(a: Act) {
+    const k = Object.keys(this.bind.keys).find((c) => this.bind.keys[c] === a);
+    return `<i class="kc">${k ? keyLabel(k).replace(/</g, "&lt;") : "?"}</i>`;
+  }
+
+  /** a one-time tip at the top of the pitch (each one once per device); one at a time */
+  tip(key: string, html: string, ms = 4200) {
+    if (!this.cb || this.guideOpen || this.paused || performance.now() < this.tipUntil) return;
+    try {
+      if (localStorage.getItem(`fb-tip-${key}`)) return;
+      localStorage.setItem(`fb-tip-${key}`, "1");
+    } catch {
+      // no storage: once per page
+      if (this.el.dataset[`tip${key}`]) return;
+      this.el.dataset[`tip${key}`] = "1";
+    }
+    this.tipEl.innerHTML = html;
+    this.tipEl.classList.add("on");
+    this.tipUntil = performance.now() + ms;
+    clearTimeout(this.tipTimer);
+    this.tipTimer = window.setTimeout(() => this.tipEl.classList.remove("on"), ms);
+  }
+  /** the scene saw something worth a tip */
+  cue(k: "shield" | "warn") {
+    if (k === "shield") this.tip("shield", "<b>🛡</b> ظهرك للمدافع: الكمبيوتر ما يقدر ياخذ الكورة منك");
+    else this.tip("warn", `<b class="r">!</b> المدافع بيفتك: لف عنه بسرعة أو اضغط ${this.touch ? "<b>★</b>" : this.keyName("k")}`);
+  }
+
+  /** the "how to play" card: every control and what the marks on the pitch mean (solo play pauses under it) */
+  private toggleGuide(on = !this.guideOpen) {
+    if (on === this.guideOpen) return;
+    this.guideOpen = on;
+    if (on) {
+      this.guide.innerHTML = this.guideHtml();
+      this.tipEl.classList.remove("on");
+      if (this.canPause && !this.paused) {
+        this.setPausedState(true);
+        this.guidePaused = true;
+      }
+    } else if (this.guidePaused) {
+      this.guidePaused = false;
+      if (this.paused) this.setPausedState(false);
+    }
+    this.el.classList.toggle("guide", on);
+  }
+  private guideHtml() {
+    const t = this.touch;
+    const K = (a: Act) => this.keyName(a);
+    const move = t ? "اسحب بإصبعك بأي مكان على يسار الشاشة" : `${K("up")} ${K("left")} ${K("down")} ${K("right")} أو الأسهم`;
+    const run = t ? "اسحب العصا لبرّا الدايرة البرتقالية (تنوّر)" : `اضغط ${K("s")} وانت تتحرك`;
+    const A = t ? `<i class="kc a">A</i>` : K("a");
+    const B = t ? `<i class="kc b">B</i>` : K("b");
+    const S = t ? `<i class="kc k">★</i>` : K("k");
+    const row = (ic: string, h: string, d: string) => `<div class="gr"><span class="gi">${ic}</span><div><b>${h}</b><small>${d}</small></div></div>`;
+    return `<div class="gc">
+      <div class="gt">شلون ألعب؟</div>
+      <div class="gs">والكورة معاك</div>
+      ${row("🕹️", "حركة", move)}
+      ${row("<em>»</em>", "ركض", `${run}. الشريط الأخضر تحت بطتك هو نَفَسها، لو خلص توقف ترتاح شوي`)}
+      ${row(A, "تمرير", "اضغط: تروح للي فوقه السهم الأبيض · اضغط مطوّل: بينية (سهم أصفر) أو عرضية (سهم برتقالي)")}
+      ${row(B, "تسديد", `اضغط مطوّل لين تتعبى الدايرة = أقوى شوتة${t ? "" : ` · مع ${K("s")} = لوب`}`)}
+      ${row(S, "حركة مهارية", `تتخطى فيها المدافع، أحسن وقت لها لما يطلع فوقه <b class="r">!</b>`)}
+      ${row("🛡", "مسكة الكورة", "خل ظهرك للمدافع: يطلع درع أزرق يعني الكورة بأمان. لو كان قدامك أو جنبك يطلع خط أحمر، لف عنه")}
+      <div class="gs">بدون الكورة</div>
+      ${row(A, "افتك / زحلقة", "قريب منه = افتكاك · بعيد = زحلقة")}
+      ${row(B, "بدّل", "تنتقل للاعب الأقرب للكورة")}
+      <div class="gf">اضغط بأي مكان عشان تكمّل</div>
+    </div>`;
   }
 
   /** what my held pass would become (the server's pass target kind: 1 through / long, 2 cross) */
@@ -304,6 +405,7 @@ export class FootballControls {
     this.el.classList.toggle("pausable", on);
     // (a goal, the whistle: the match moved on, the pause is over)
     if (!on && this.paused) this.setPausedState(false);
+    if (!on) this.guidePaused = false;
   }
   private togglePause() {
     if (!this.cb || (!this.paused && !this.canPause)) return;
@@ -500,6 +602,13 @@ export class FootballControls {
       }
       this.rebind = null;
       this.renderLegend();
+      return;
+    }
+    // the guide is open: any key closes it; "?" opens it
+    if (this.guideOpen || c === "Slash") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.repeat) this.toggleGuide();
       return;
     }
     if (c === "KeyH") {

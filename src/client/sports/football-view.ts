@@ -102,6 +102,7 @@ export function createFootballView(root: HTMLElement, opts: SportViewOpts): Spor
         return v ?? -1;
       },
       stamina: () => stamina(),
+      cue: (k) => controls.cue(k),
       newest: (slot) => frames.newest(slot),
       serverNow,
       ready: () => {

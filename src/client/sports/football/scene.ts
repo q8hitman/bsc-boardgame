@@ -47,6 +47,8 @@ export interface SceneOpts {
   /** a slot at the newest snapshot (for correcting the prediction) */
   newest: (slot: number) => { x: number; y: number; vx: number; vy: number; act: number; t: number } | null;
   serverNow: () => number;
+  /** something worth a one-time tip happened to my duck: shielding the ball, a defender about to tackle me */
+  cue?: (k: "shield" | "warn") => void;
 }
 
 interface Duck {
@@ -1248,11 +1250,19 @@ export class FootballScene extends Phaser.Scene {
         d.marker.setVisible(false);
       }
       if (mine) this.staminaBar(X, Y, act === FbAction.Sprint);
+      // sprinting: speed streaks behind my duck (so the sprint shows, not only the bar)
+      if (mine && act === FbAction.Sprint) this.streaks(X, Y + Math.min(0, oy), face, time);
+      // the ball at my feet with a computer defender close: a blue shield on his side when my back is to him (he
+      // can't take it from there), a red arc when he is in front of me or at my side (he can)
+      if (mine && pr && pose.owner === mySlot) this.shieldMark(X, Y, pr, pose, controlled, d.team, time);
       // the team-mate my pass would reach: a ring at his feet and a chevron over him (white = to feet, yellow =
       // through / long ball, orange = cross)
       if (aimSlot === d.slot) this.aimMark(X, Y + Math.min(0, oy), aimKind, time);
       // a defender about to tackle my team's carrier: a "!" over him (you can turn away)
-      if (act === FbAction.Lean && !controlled.has(d.slot) && myTeam >= 0 && d.team !== myTeam && pose.owner >= 0 && this.teamOf(pose.owner) === myTeam) this.warnMark(X, Y - 94 + Math.min(0, oy), since, time);
+      if (act === FbAction.Lean && !controlled.has(d.slot) && myTeam >= 0 && d.team !== myTeam && pose.owner >= 0 && this.teamOf(pose.owner) === myTeam) {
+        this.warnMark(X, Y - 94 + Math.min(0, oy), since, time);
+        this.o.cue?.("warn");
+      }
       const kind = mine ? "me" : pid !== undefined || d.human ? "human" : "cpu";
       if (ctlKey !== this.lastCtl || !d.label || this.zoomChanged) this.labelFor(d, kind);
       d.label?.setPosition(X, Y - (pid !== undefined ? (mine ? 88 : 84) : 74) + (kneel ? oy : Math.min(0, oy)));
@@ -1400,6 +1410,66 @@ export class FootballScene extends Phaser.Scene {
     const col = v < 0.08 ? (Math.floor(this.time.now / 120) % 2 ? 0xe8452c : 0x7a1d14) : v < 0.35 ? 0xff9a2a : 0x3ddc5a;
     g.fillStyle(col, 1).fillRect(x0, y0, Math.round(w * clamp(v, 0, 1)), 3);
     g.fillStyle(0xffffff, 0.35).fillRect(x0, y0, Math.round(w * clamp(v, 0, 1)), 1);
+  }
+
+  /** three speed streaks trailing my sprinting duck */
+  private streaks(X: number, Y: number, face: number, time: number) {
+    const g = this.fxG;
+    for (let i = 0; i < 3; i++) {
+      const ph = ((time / 90 + i * 0.37) % 1 + 1) % 1;
+      const len = 6 + Math.round(8 * (1 - ph));
+      const x0 = X - face * (16 + Math.round(ph * 14));
+      const y0 = Y - 14 - i * 11;
+      g.fillStyle(0xffffff, 0.75 * (1 - ph)).fillRect(face > 0 ? x0 - len : x0, y0, len, 2);
+    }
+  }
+  /** shielding: the nearest computer defender within reach of the ball, and is my back to him? (the engine's rule:
+   *  a computer duck never tackles a person's carrier from behind, front < -0.25 of the carrier's heading) */
+  private shieldMark(X: number, Y: number, pr: { x: number; y: number; hx: number; hy: number }, pose: Pose, controlled: Map<number, string>, team: number, time: number) {
+    let best = 9;
+    let bx = 0;
+    let by = 0;
+    for (const o of this.ducks) {
+      if (o.team === team || controlled.has(o.slot)) continue;
+      const i = o.slot * 4;
+      if (pose.p.length < i + 4) continue;
+      const ox = pose.p[i] - pr.x;
+      const oy = pose.p[i + 1] - pr.y;
+      const dd = Math.hypot(ox, oy);
+      if (dd < best) {
+        best = dd;
+        bx = ox;
+        by = oy;
+      }
+    }
+    if (best > 1.9) return;
+    const safe = (bx * pr.hx + by * pr.hy) / (best || 1) < -0.25;
+    const g = this.fxG;
+    // an arc on the ellipse round the feet, centred on the defender's side
+    const sX = wx(pr.x + bx) - wx(pr.x);
+    const sY = wy(pr.y + by) - wy(pr.y);
+    const a = Math.atan2(sY * 2.5, sX);
+    const col = safe ? 0x4ad8ff : 0xff4a3a;
+    const pulse = 0.65 + 0.35 * Math.sin(time / 120);
+    for (let k = -5; k <= 5; k++) {
+      const t = a + k * 0.2;
+      const px = Math.round(X + Math.cos(t) * 26);
+      const py = Math.round(Y - 2 + Math.sin(t) * 10);
+      g.fillStyle(0x0b0d1c, 0.7).fillRect(px - 3, py - 2, 6, 5);
+      g.fillStyle(col, pulse).fillRect(px - 2, py - 1, 4, 3);
+    }
+    if (!safe) return;
+    // a little shield badge at body height on his side
+    const cx = X + (sX >= 0 ? 24 : -24);
+    const cy = Y - 34;
+    const sh = (r: number) => [
+      { x: cx - r, y: cy - r }, { x: cx + r, y: cy - r }, { x: cx + r, y: cy + 1 }, { x: cx, y: cy + r + 2 }, { x: cx - r, y: cy + 1 },
+    ];
+    g.fillStyle(0x0b0d1c, 0.9).fillPoints(sh(10), true);
+    g.fillStyle(0x4ad8ff, 1).fillPoints(sh(8), true);
+    g.fillStyle(0x1a8fc4, 1).fillPoints([{ x: cx, y: cy - 8 }, { x: cx + 8, y: cy - 8 }, { x: cx + 8, y: cy + 1 }, { x: cx, y: cy + 10 }], true);
+    g.fillStyle(0xffffff, 0.9).fillRect(cx - 6, cy - 6, 4, 2).fillRect(cx - 6, cy - 6, 2, 6);
+    this.o.cue?.("shield");
   }
 
   private teamOf(slot: number) {
