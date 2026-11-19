@@ -1,0 +1,43 @@
+rules_version = '2';
+// Duck Party accounts. users/{uid}: { name, char, xp, wins, played, games, days, merged, updated }.
+// Anyone signed in can read profiles (the club leaderboard); each person writes only their own document.
+// A normal result adds at most one game (and one win); merging a device's guest record is allowed once per device.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid && valid(request.resource.data)
+        && request.resource.data.played <= 500 && request.resource.data.merged.size() == 1;
+      allow update: if request.auth != null && request.auth.uid == uid && valid(request.resource.data)
+        && (oneGame(resource.data, request.resource.data) || mergeOnce(resource.data, request.resource.data));
+      allow delete: if false;
+    }
+
+    function valid(d) {
+      return d.keys().hasAll(['name', 'char', 'xp', 'wins', 'played', 'games', 'days', 'merged'])
+        && d.keys().hasOnly(['name', 'char', 'xp', 'wins', 'played', 'games', 'days', 'merged', 'updated'])
+        && d.name is string && d.name.size() <= 14
+        && d.char is string && d.char.size() <= 24
+        && d.wins is int && d.played is int && d.xp is int
+        && d.wins >= 0 && d.wins <= d.played
+        && d.xp == d.played * 10 + d.wins * 25
+        && d.games is map && d.games.size() <= 40
+        && d.days is list && d.days.size() <= 400
+        && d.merged is list && d.merged.size() <= 10;
+    }
+
+    // a name / duck change (0) or one finished game (+1 played, +0 or +1 win); the device list never changes here
+    function oneGame(a, b) {
+      return b.merged == a.merged
+        && b.played - a.played >= 0 && b.played - a.played <= 1
+        && b.wins - a.wins >= 0 && b.wins - a.wins <= b.played - a.played;
+    }
+
+    // a device's guest record joins the account once: one new device id, at most 500 games added
+    function mergeOnce(a, b) {
+      return b.merged.size() == a.merged.size() + 1 && b.merged.hasAll(a.merged)
+        && b.played - a.played >= 0 && b.played - a.played <= 500
+        && b.wins - a.wins >= 0 && b.wins - a.wins <= b.played - a.played;
+    }
+  }
+}

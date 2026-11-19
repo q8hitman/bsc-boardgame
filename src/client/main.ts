@@ -65,3 +65,10 @@ function home() {
 }
 
 route();
+
+// accounts (Firebase) load after the page shows; a projector screen and the card preview never sign in
+if (!params.has("screen") && !params.has("cards")) {
+  const startCloud = () => void import("./account/cloud").then((m) => m.startCloud()).catch((e) => console.warn("[account] not loaded", e));
+  if ("requestIdleCallback" in window) requestIdleCallback(startCloud, { timeout: 2500 });
+  else setTimeout(startCloud, 800);
+}
