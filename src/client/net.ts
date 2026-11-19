@@ -1,6 +1,8 @@
 import { io, type Socket } from "socket.io-client";
 import type { ClientToServer, GameState, ServerToClient } from "../shared/types";
 import { serverUrl } from "./config";
+import { CLUB } from "../shared/football/club";
+import { BOARDS } from "../shared/data";
 
 export type ClientSocket = Socket<ServerToClient, ClientToServer>;
 
@@ -42,5 +44,16 @@ export const ar = (n: number | string) => String(n).replace(/\d/g, (d) => "٠١�
 /** Cartoon icon rendered in Blender (public/assets/icons), used instead of emoji so it looks the same on every device. */
 export const icon = (name: string, px = 28) =>
   `<img class="ic ic-${name}${px >= 56 ? " anim" : ""}" src="assets/icons/${name}.png" alt="" style="height:${px}px;width:${px}px">`;
+/** The room's game and its people's ducks: pawns belong to board games; in any other game a player's picture is
+ *  their duck (the club character from their account; a bot or an older client gets a club character by seat). */
+let facesBoard = true;
+let facesByDuck = new Map<number, string>();
+export function setFaces(s: { boardId: string; players: { duck: number; char?: string }[] }) {
+  facesBoard = !!BOARDS[s.boardId];
+  facesByDuck = new Map(s.players.filter((p) => p.char).map((p) => [p.duck, p.char!]));
+}
+/** the picture for a seat (pawn index): its pawn in a board game, its player's duck otherwise */
+export const pieceSrc = (duck: number) =>
+  facesBoard ? `assets/tokens/token${duck}.png` : `assets/heads/${facesByDuck.get(duck) ?? CLUB[((duck % CLUB.length) + CLUB.length) % CLUB.length].id}.png`;
 export const tokenImg = (duck: number, px = 120) =>
-  `<img class="ic tok${px >= 56 ? " anim" : ""}" src="assets/tokens/token${duck}.png" alt="" style="height:${px}px">`;
+  `<img class="ic tok${px >= 56 ? " anim" : ""}" src="${pieceSrc(duck)}" alt="" style="height:${px}px">`;

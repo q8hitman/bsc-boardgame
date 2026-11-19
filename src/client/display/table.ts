@@ -2,7 +2,7 @@ import "./table.css";
 import { CARD_COLORS, CARD_KINDS } from "../../shared/cards";
 import type { Card, GameState } from "../../shared/types";
 import { cardBack, cardDeck, cardHtml, colorDot, preloadCards } from "../cards-ui";
-import { ar, esc } from "../net";
+import { ar, esc, pieceSrc } from "../net";
 import { sfx } from "../sfx";
 
 /** Big-screen card table for "كش!": seats around a felt table, deck + discard pile in the middle, flying cards. */
@@ -207,7 +207,7 @@ export class CardTable {
         const cls = [id === curId && s.phase !== "final" && s.phase !== "end" ? "cur" : "", !p.connected ? "off" : "", n === 1 ? "one" : "", s.winnerIds?.includes(id) ? "won" : ""].join(" ");
         return `<div class="tb-seat ${cls}" data-id="${id}" style="left:${x}px;top:${y}px">
           <div class="tb-fan">${backs}</div>
-          <div class="tb-av"><img src="assets/tokens/token${p.duck}.png" alt=""></div>
+          <div class="tb-av"><img src="${pieceSrc(p.duck)}" alt=""></div>
           <div class="tb-name">${esc(p.name)}</div>
           <div class="tb-n">${this.phone ? ar(n) : n === 1 ? "كرت واحد!" : `${ar(n)} كروت`}</div>
         </div>`;
@@ -393,7 +393,7 @@ export class CardTable {
     sfx.fanfare();
     const el = document.createElement("div");
     el.className = "tb-king";
-    el.innerHTML = `<div class="tb-king-in">${p ? `<img src="assets/tokens/token${p.duck}.png" alt="">` : ""}<b>كش ملك!</b>${p ? `<span>${esc(p.name)}</span>` : ""}</div>`;
+    el.innerHTML = `<div class="tb-king-in">${p ? `<img src="${pieceSrc(p.duck)}" alt="">` : ""}<b>كش ملك!</b>${p ? `<span>${esc(p.name)}</span>` : ""}</div>`;
     this.fx().appendChild(el);
     setTimeout(() => el.remove(), 2700);
   }

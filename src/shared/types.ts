@@ -87,6 +87,8 @@ export interface Player {
   stats: { minigameWins: number; stolenFrom: number; risks: number };
   /** the device's own profile id (localStorage), so each phone can keep its win record against this person */
   profileId?: string;
+  /** this person's duck (a club character id, from their account): their face outside board games */
+  char?: string;
 }
 
 export type Phase =
@@ -197,12 +199,12 @@ export interface ClientToServer {
   "screen:create": (cb: (res: { code: string; token: string }) => void) => void;
   /** a phone makes a room with no big screen and joins it as the host */
   "room:create": (
-    data: { name?: string; profileId?: string },
+    data: { name?: string; profileId?: string; char?: string },
     cb: (res: { ok: true; code: string; playerId: string; token: string } | { ok: false; error: string }) => void,
   ) => void;
   "screen:resume": (data: { code: string; token: string }, cb: (ok: boolean) => void) => void;
   "player:join": (
-    data: { code: string; name?: string; token?: string; profileId?: string },
+    data: { code: string; name?: string; token?: string; profileId?: string; char?: string },
     cb: (res: { ok: true; playerId: string; token: string } | { ok: false; error: string }) => void,
   ) => void;
   "host:addBot": () => void;

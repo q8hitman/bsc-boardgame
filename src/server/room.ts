@@ -239,9 +239,10 @@ export class Room {
     sock.emit("state", { ...this.state, serverNow: Date.now() });
   }
 
-  join(sock: Sock, name: string | undefined, tok: string | undefined, rawProfile?: string) {
+  join(sock: Sock, name: string | undefined, tok: string | undefined, rawProfile?: string, rawChar?: string) {
     // other phones use this as a key in their saved record: hex only, bounded
     const profileId = rawProfile && /^[0-9a-f]{8,40}$/.test(rawProfile) ? rawProfile : undefined;
+    const char = rawChar && isClubChar(rawChar) ? rawChar : undefined;
     const existing = tok ? this.tokens.get(tok) : undefined;
     const org = this.state.organizer;
     if (existing && org && org.id === existing) {
@@ -256,6 +257,7 @@ export class Room {
       const pl = this.p(existing)!;
       pl.connected = true;
       if (profileId) pl.profileId = profileId;
+      if (char) pl.char = char;
       clearTimeout(this.grace.get(pl.id));
       this.grace.delete(pl.id);
       this.ensureHost(pl);
@@ -292,6 +294,7 @@ export class Room {
       shielded: false,
       stats: { minigameWins: 0, stolenFrom: 0, risks: 0 },
       profileId,
+      char,
     };
     const t = token();
     this.tokens.set(t, pl.id);

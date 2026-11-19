@@ -11,12 +11,16 @@ import type { Shot, SportId } from "../../shared/sports/types";
 import { loadSportView, type SportView } from "../sports/view";
 import { createCardPad } from "./cardpad";
 import type { GameState, Player } from "../../shared/types";
-import { ar, Clock, connect, esc, icon, joinUrl, tokenImg } from "../net";
+import { ar, Clock, connect, esc, icon, joinUrl, pieceSrc, setFaces, tokenImg } from "../net";
 import type { DisplayHandle } from "../display/display";
 import { serverUrl } from "../config";
 import { gameStats, profile, recordGame, rivalOf, saveProfile } from "../profile";
 
-const duckImg = (p: { duck: number }) => `assets/tokens/token${p.duck}.png`;
+const duckImg = (p: { duck: number }) => pieceSrc(p.duck);
+/** a player's picture at a size (pieceSrc: a pawn in a board game, their duck otherwise) */
+const face = (_s: GameState, x: { duck: number }, px: number) => tokenImg(x.duck, px);
+/** the big picture on a page */
+const bigFace = (_s: GameState, x: { duck: number }, cls = "duck") => `<img class="${cls}" src="${duckImg(x)}" alt="">`;
 // timers instead of animation frames: they keep running when a phone dims or the tab is in the background
 const nextFrame = (fn: () => void) => window.setTimeout(fn, 40);
 const cancelFrame = (id: number) => clearTimeout(id);
@@ -35,7 +39,7 @@ export interface LocalPad {
 export function startController(root: HTMLElement, initialCode: string, local?: LocalPad, opts: { create?: boolean; game?: string } = {}) {
   if (!local) document.body.classList.add("pad");
   root.innerHTML = `<div class="ph-view hidden" id="phView"></div><div class="ph-side"><div class="pad-wrap"><div class="pad-top hidden" id="top"></div><div class="pad-main" id="main"></div></div></div><button class="skip hidden" id="skip">تخطي ⏭</button>
-    <div class="wake hidden" id="wake"><img class="duck" src="assets/tokens/token0.png" alt=""><h2>قاعد نصحّي السيرفر…</h2><p>أول مرة بعد فترة تاخذ لين دقيقة</p></div>`;
+    <div class="wake hidden" id="wake"><img class="duck" src="assets/heads/${profile().char}.png" alt=""><h2>قاعد نصحّي السيرفر…</h2><p>أول مرة بعد فترة تاخذ لين دقيقة</p></div>`;
   const wrap = root.querySelector<HTMLDivElement>(".pad-wrap")!;
   const top = root.querySelector<HTMLDivElement>("#top")!;
   const main = root.querySelector<HTMLDivElement>("#main")!;
@@ -92,7 +96,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
 
   function join(c: string, name: string, onErr?: (e: string) => void) {
     const tok = local ? undefined : localStorage.getItem(tokenKey(c)) ?? undefined;
-    sock.emit("player:join", { code: c, name, token: tok, profileId: local?.keys ? undefined : profile().id }, (res) => {
+    sock.emit("player:join", { code: c, name, token: tok, profileId: local?.keys ? undefined : profile().id, char: local?.keys ? undefined : profile().char }, (res) => {
       if (!res.ok) {
         if (tok) localStorage.removeItem(tokenKey(c));
         onErr?.(res.error);
@@ -150,6 +154,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
   });
   const sendFb = (i: FbInput) => sock.emit("fb:input", i);
   sock.on("state", (s) => {
+    setFaces(s);
     clock.update(s);
     latest = s; // the server can send state just before the join is confirmed
     if (!me || s.code !== code) return;
@@ -219,7 +224,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     key = "join";
     top.classList.add("hidden");
     main.innerHTML = `
-      <img class="duck" src="assets/tokens/token0.png" alt="">
+      <img class="duck" src="assets/heads/${profile().char}.png" alt="">
       <h1 dir="ltr">Duck Party</h1>
       <input class="code" id="c" maxlength="4" placeholder="رمز" value="${esc(code)}" autocomplete="off" />
       ${nameLine()}
@@ -246,7 +251,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     key = "create";
     top.classList.add("hidden");
     main.innerHTML = `
-      <img class="duck" src="assets/tokens/token0.png" alt="">
+      <img class="duck" src="assets/heads/${profile().char}.png" alt="">
       <h1>سوّ غرفة</h1>
       <p>ترسل الرابط لربعك ويدخلون من تليفوناتهم</p>
       ${nameLine()}
@@ -259,7 +264,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       busy = true;
       const n = savedName();
       main.querySelector<HTMLButtonElement>("#go")!.textContent = "لحظة…";
-      sock.timeout(20000).emit("room:create", { name: n, profileId: profile().id }, (err, res) => {
+      sock.timeout(20000).emit("room:create", { name: n, profileId: profile().id, char: profile().char }, (err, res) => {
         if (err || !res) return showCreate("السيرفر ما رد. جرّب مرة ثانية");
         if (!res.ok) return showCreate(res.error);
         joined(res.code, res.playerId, res.token);
@@ -380,7 +385,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       case "lobby":
         return renderLobby(s, p);
       case "intro":
-        main.innerHTML = `<img class="duck" src="${duckImg(p)}" alt=""><h1>يلا نبدأ!</h1><p>${seeBoard() ? "طالع البورد" : "طالع الشاشة الكبيرة"}</p>`;
+        main.innerHTML = `${bigFace(s, p)}<h1>يلا نبدأ!</h1><p>${seeBoard() ? "طالع البورد" : "طالع الشاشة الكبيرة"}</p>`;
         return;
       case "turn":
         if (mine) {
@@ -510,7 +515,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
             const mate = s.boardId === "football" && s.fbTeams?.[x.id] === s.fbTeams?.[me];
             const tie = !mate && ((isSport(s) && s.sport?.total[x.id] === s.sport?.total[me] && won === !!s.winnerIds?.includes(x.id)) || (won && !!s.winnerIds?.includes(x.id)));
             const beat = won ? !s.winnerIds?.includes(x.id) : order.indexOf(x) > rank;
-            return r ? `<div class="rv">${tokenImg(x.duck, 34)}<span class="rv-nm">${esc(x.name)}</span><small>${mate ? "بفريقك" : tie ? "تعادلتوا" : beat ? "فزت عليه" : "فاز عليك"}</small><b class="rv-score"><i>${ar(r.w)}</i> – <i>${ar(r.l)}</i></b></div>` : "";
+            return r ? `<div class="rv">${face(s, x, 34)}<span class="rv-nm">${esc(x.name)}</span><small>${mate ? "بفريقك" : tie ? "تعادلتوا" : beat ? "فزت عليه" : "فاز عليك"}</small><b class="rv-score"><i>${ar(r.w)}</i> – <i>${ar(r.l)}</i></b></div>` : "";
           })
           .join("");
         const detail = isSport(s)
@@ -616,7 +621,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
     const p = P();
     const cur = s.players.find((x) => x.id === s.order[s.turnIdx]);
     const show = cur && cur.id !== me && ["turn", "moving", "tile", "choosePath", "buyStar", "pickTarget", "shop", "wheel"].includes(s.phase) ? cur : p;
-    main.innerHTML = `<div class="wait"><img class="duck${show !== p ? " other" : ""}" src="${duckImg(show)}" alt=""><div><h2>${esc(title)}</h2>
+    main.innerHTML = `<div class="wait">${bigFace(s, show, `duck${show !== p ? " other" : ""}`)}<div><h2>${esc(title)}</h2>
       ${p.items.length || p.shielded ? `<p>أغراضك: ${p.items.map((i) => icon(ITEMS[i].icon, 30)).join(" ")} ${p.shielded ? icon("shield", 30) : ""}</p>` : ""}
       <p style="opacity:.7">${isRace(s) ? `خانتك ${ar(p.node + 1)} · ` : ""}الجولة ${ar(s.round)} من ${ar(s.maxRounds)}</p></div></div>`;
   }
@@ -630,24 +635,26 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       const g = r?.games[s.boardId];
       const score = r && r.w + r.l ? `<b class="rv-score"><i>${ar(r.w)}</i> – <i>${ar(r.l)}</i></b>` : `<b class="rv-new">أول مرة</b>`;
       const here = g && g.w + g.l ? `<small>بهاللعبة ${ar(g.w)} – ${ar(g.l)}</small>` : "";
-      return `<div class="rv">${tokenImg(o.duck, 34)}<span class="rv-nm">${esc(o.name)}</span>${here}${score}</div>`;
+      return `<div class="rv">${face(s, o, 34)}<span class="rv-nm">${esc(o.name)}</span>${here}${score}</div>`;
     });
     return `<div class="rivals"><h3>انت ضد ربعك</h3>${rows.join("")}</div>`;
   }
 
   function renderLobby(s: GameState, p: Player) {
     main.innerHTML = `${shareBlock(s)}${rivalsBlock(s)}
-      <img class="duck" src="${duckImg(p)}" alt="">
+      ${isBoardGame(s)
+        ? `<img class="duck" src="${duckImg(p)}" alt="">
       <h1>${esc(DUCKS[p.duck].name)}</h1>${DUCKS[p.duck].ref ? `<p class="ref">من ${esc(DUCKS[p.duck].ref!)}</p>` : ""}
-      <p class="lob-name">${esc(p.name)}</p>
+      <p class="lob-name">${esc(p.name)}</p>`
+        : `${bigFace(s, p)}<h1>${esc(p.name)}</h1>`}
       ${s.boardId === "football" ? footballLobby(s) : ""}
-      <p>اختار قطعتك</p>
+      ${isBoardGame(s) ? `<p>اختار قطعتك</p>
       <div class="picker">${DUCKS.map((d, i) => {
         const owner = s.players.find((x) => x.duck === i);
         const mine = owner?.id === me;
         return `<button class="pick ${mine ? "mine" : ""} ${owner && !mine ? "taken" : ""}" data-piece="${i}" ${owner && !mine ? "disabled" : ""} style="--c:${d.color}">
           <img src="assets/tokens/token${i}.png" alt="${esc(d.name)}"><span>${esc(owner && !mine ? owner.name : d.name)}</span></button>`;
-      }).join("")}</div>
+      }).join("")}</div>` : ""}
       ${p.isHost
         ? `<p>انت المنظم</p>
            <button class="small-btn" id="org">ما راح ألعب، بنظم بس</button>
@@ -765,7 +772,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       main.innerHTML = `${shareBlock(s)}${icon("crown", 110)}<h1>انت المنظم</h1><p>ما تلعب. تتحكم باللعبة من هني</p>
         <button class="small-btn" id="play">أبي ألعب بعد</button>
         ${boardPicker(s)}
-        <div class="org-list">${s.players.map((x) => `<span>${tokenImg(x.duck, 44)}${esc(x.name)}</span>`).join("") || "<p>بانتظار اللاعبين…</p>"}</div>
+        <div class="org-list">${s.players.map((x) => `<span>${face(s, x, 44)}${esc(x.name)}</span>`).join("") || "<p>بانتظار اللاعبين…</p>"}</div>
         ${isBoardGame(s) ? `<div class="stepper"><button id="rm">−</button><span>${ar(s.maxRounds)} جولات</span><button id="rp">+</button></div>` : coursePicker(s)}
         ${seatTools(s)}
         <button class="big-btn green" id="start" ${s.players.length < 2 ? "disabled style='opacity:.5'" : ""}>ابدأ اللعبة (${ar(s.players.length)} لاعبين)</button>`;
@@ -784,7 +791,7 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       : ["turn", "moving", "tile", "choosePath", "buyStar", "pickTarget", "shop", "wheel", "cards"].includes(s.phase) && cur ? `${PHASE_TXT[s.phase]} ${cur.name}`
       : PHASE_TXT[s.phase] ?? "";
     main.innerHTML = `<p style="opacity:.75">${isSport(s) ? `${esc(gameName(s.boardId))} · الجولة ${ar((s.sport?.round ?? 0) + 1)} من ${ar(s.sport?.rounds ?? 0)}` : isCards(s) ? `${CARD_GAME.name} ${CARD_GAME.sub}` : `الجولة ${ar(s.round)} من ${ar(s.maxRounds)}`}</p><h2>${esc(status)}</h2>
-      <div class="org-rank">${rk.map((x, i) => `<div class="${x.id === cur?.id ? "cur" : ""}"><b>${ar(i + 1)}</b>${tokenImg(x.duck, 40)}<span>${esc(x.name)}</span>${isSport(s) ? `<span>${ar(s.sport?.total[x.id] ?? 0)} ${sportUnit(s)}</span><span></span>` : isCards(s) ? `<span>${ar(s.table?.counts[x.id] ?? 0)} كروت</span><span></span>` : isRace(s) ? `<span>خانة ${ar(x.node + 1)}</span><span></span>` : `<span>${icon("star", 22)}${ar(x.stars)}</span><span>${icon("bread", 22)}${ar(x.crumbs)}</span>`}</div>`).join("")}</div>
+      <div class="org-rank">${rk.map((x, i) => `<div class="${x.id === cur?.id ? "cur" : ""}"><b>${ar(i + 1)}</b>${face(s, x, 40)}<span>${esc(x.name)}</span>${isSport(s) ? `<span>${ar(s.sport?.total[x.id] ?? 0)} ${sportUnit(s)}</span><span></span>` : isCards(s) ? `<span>${ar(s.table?.counts[x.id] ?? 0)} كروت</span><span></span>` : isRace(s) ? `<span>خانة ${ar(x.node + 1)}</span><span></span>` : `<span>${icon("star", 22)}${ar(x.stars)}</span><span>${icon("bread", 22)}${ar(x.crumbs)}</span>`}</div>`).join("")}</div>
       ${s.phase === "end"
         ? `<button class="big-btn" id="again">لعبة جديدة</button>`
         : `<button class="big-btn alt" id="oskip">تخطي ⏭</button><p style="opacity:.7;font-size:15px">إذا أحد علّق أو طوّل، التخطي يكمل عنه</p>`}`;

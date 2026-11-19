@@ -18,7 +18,7 @@ import {
 } from "../../shared/sports/hoops";
 import type { Replay, Shot } from "../../shared/sports/types";
 import type { GameState } from "../../shared/types";
-import { ar, esc } from "../net";
+import { ar, esc, pieceSrc } from "../net";
 import { ballSvg } from "./hoops/art";
 import { HoopsAudio } from "./hoops/audio";
 import { SPACING, animateNet, makeAssets, makeLane, makeWorld, type Lane } from "./hoops/world";
@@ -558,7 +558,7 @@ class HoopsView implements SportView {
         others.sort((a, b) => b.t - a.t);
         this.q(".hp-others").innerHTML = others
           .slice(0, 7)
-          .map((o) => `<div class="hp-chip ${o.t === best && o.t > 0 ? "lead" : ""} ${o.f ? "hot" : ""}" data-p="${esc(o.p.id)}"><img src="assets/tokens/token${o.p.duck}.png" alt=""><span class="hp-num">${ar(o.t)}</span></div>`)
+          .map((o) => `<div class="hp-chip ${o.t === best && o.t > 0 ? "lead" : ""} ${o.f ? "hot" : ""}" data-p="${esc(o.p.id)}"><img src="${pieceSrc(o.p.duck)}" alt=""><span class="hp-num">${ar(o.t)}</span></div>`)
           .join("");
       }
       return;
@@ -576,7 +576,7 @@ class HoopsView implements SportView {
         const t = sp.total[p.id] ?? 0;
         if (t !== prev) rank = i + 1;
         prev = t;
-        return `<div class="hp-row ${rank === 1 && t > 0 ? "first" : ""}"><div class="rk hp-num">${ar(rank)}</div><img src="assets/tokens/token${p.duck}.png" alt=""><div class="nm">${esc(p.name)}</div>${this.data(p.id)?.fire ? `<div class="fl"></div>` : ""}<div class="sc hp-num">${ar(t)}</div></div>`;
+        return `<div class="hp-row ${rank === 1 && t > 0 ? "first" : ""}"><div class="rk hp-num">${ar(rank)}</div><img src="${pieceSrc(p.duck)}" alt=""><div class="nm">${esc(p.name)}</div>${this.data(p.id)?.fire ? `<div class="fl"></div>` : ""}<div class="sc hp-num">${ar(t)}</div></div>`;
       })
       .join("");
     const tags = this.q(".hp-tags");
@@ -596,7 +596,7 @@ class HoopsView implements SportView {
         dots += `<div class="dot ${r ? (r.pts ? (r.fire ? "hot" : "made") : "miss") : ""}"></div>`;
       }
       el.className = `hp-tag ${d?.fire ? "hot" : ""} ${this.winners.includes(p.id) ? "win" : ""}`;
-      el.innerHTML = `<div class="card"><img src="assets/tokens/token${p.duck}.png" alt=""><div class="nm">${esc(p.name)}</div><div class="sc hp-num">${ar(sp.total[p.id] ?? 0)}</div></div><div class="dots">${dots}</div>`;
+      el.innerHTML = `<div class="card"><img src="${pieceSrc(p.duck)}" alt=""><div class="nm">${esc(p.name)}</div><div class="sc hp-num">${ar(sp.total[p.id] ?? 0)}</div></div><div class="dots">${dots}</div>`;
     }
   }
 

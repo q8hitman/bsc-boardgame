@@ -4,7 +4,7 @@ import { DUCKS } from "../../shared/data";
 import { BALL_R, CUP_R, GOLF, MAX_STROKES, courseOf, heightAt, holeOf, surfaceAt, wallsOf, type GolfBall, type Hole } from "../../shared/sports/golf";
 import type { Replay, Shot } from "../../shared/sports/types";
 import type { GameState } from "../../shared/types";
-import { ar, esc } from "../net";
+import { ar, esc, pieceSrc } from "../net";
 import { sfx } from "../sfx";
 import { GolfAudio } from "./golf/audio";
 import { Kit, LOOKS, buildHole, type BuiltHole } from "./golf/build";
@@ -45,7 +45,7 @@ interface BallObj {
 
 const TAU = Math.PI * 2;
 const damp = (k: number, dt: number) => 1 - Math.exp(-k * dt);
-const tokenSrc = (duck: number) => `assets/tokens/token${duck}.png`;
+const tokenSrc = (duck: number) => pieceSrc(duck);
 const CONF_COLORS = ["#ffd23f", "#ff5a4a", "#2fd08c", "#3aa8ff", "#ff7dbe", "#9b7bff", "#ffffff"];
 
 class GolfView implements SportView {

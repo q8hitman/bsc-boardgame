@@ -20,7 +20,9 @@
 }
 .me-chip:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--hink); }
 .av {
-  display: inline-block; flex: none; border-radius: 50%; background-color: var(--sun); background-repeat: no-repeat;
+  display: inline-block; flex: none; border-radius: 50%; background-color: #ffd23f; background-repeat: no-repeat;
+  /* frame 0 of the 6-frame strip, scaled so the duck's head and shoulders fill the circle */
+  aspect-ratio: 1; background-size: 693.3% 130%; background-position: 1.3% -13.3%;
   border: 2px solid var(--hink); image-rendering: pixelated; vertical-align: middle;
 }
 .me-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }

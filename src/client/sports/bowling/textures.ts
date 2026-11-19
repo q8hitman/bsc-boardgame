@@ -1,3 +1,4 @@
+import { pieceSrc } from "../../net";
 import * as THREE from "three";
 import { HEAD_Z, LANE_HALF, RACK } from "../../../shared/sports/bowling";
 import { LANE_LEN, zv } from "./space";
@@ -418,7 +419,7 @@ export function maskingTexture(opts: { num: string; name: string; color: string;
   };
   draw(null);
   const fontReady = document.fonts?.load ? document.fonts.load(`800 60px ${FONT}`).catch(() => null) : Promise.resolve(null);
-  const imgP = opts.duck == null ? Promise.resolve(null) : loadImage(`assets/tokens/token${opts.duck}.png`);
+  const imgP = opts.duck == null ? Promise.resolve(null) : loadImage(pieceSrc(opts.duck));
   void Promise.all([imgP, fontReady]).then(([img]) => draw(img));
   return t;
 }

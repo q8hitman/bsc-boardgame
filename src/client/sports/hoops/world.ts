@@ -1,3 +1,4 @@
+import { pieceSrc } from "../../net";
 // The rooftop court in Kuwait City by night, and one hoop "lane" per player.
 import * as THREE from "three";
 import { BALL_R, BOARD, HOOP_SPOTS, RIM_R, RIM_Y, hoopSpot } from "../../../shared/sports/hoops";
@@ -156,7 +157,7 @@ export function duckAsset(a: Assets, duck: number, onLoad: () => void) {
       tex.needsUpdate = true;
       onLoad();
     };
-    img.src = `assets/tokens/token${duck}.png`;
+    img.src = pieceSrc(duck);
   } else if (d.img.complete) queueMicrotask(onLoad);
   else d.img.addEventListener("load", onLoad, { once: true });
   return d;

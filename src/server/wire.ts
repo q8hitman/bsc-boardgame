@@ -55,7 +55,7 @@ export function wireSocket(io: GameIO, sock: GameSocket, rooms: Map<string, Room
     const r = new Room(io, code, { screen: false });
     rooms.set(code, r);
     sock.data.code = code;
-    const res = r.join(sock, str(data?.name), undefined, str(data?.profileId));
+    const res = r.join(sock, str(data?.name), undefined, str(data?.profileId), str(data?.char));
     ack<Parameters<Parameters<ClientToServer["room:create"]>[1]>[0]>(cb)(res.ok ? { ...res, code } : res);
   });
   sock.on("screen:resume", (data, cb) => {
@@ -72,7 +72,7 @@ export function wireSocket(io: GameIO, sock: GameSocket, rooms: Map<string, Room
     if (!r) return done({ ok: false, error: "ما لقينا غرفة بهالرمز" });
     if (sock.data.code && sock.data.code !== r.code) leaveCurrent();
     sock.data.code = r.code;
-    done(r.join(sock, str(data?.name), str(data?.token), str(data?.profileId)));
+    done(r.join(sock, str(data?.name), str(data?.token), str(data?.profileId), str(data?.char)));
   });
 
   sock.on("host:addBot", asHost((r) => r.addBot()));

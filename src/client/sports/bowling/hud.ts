@@ -1,11 +1,11 @@
 import { DUCKS } from "../../../shared/data";
 import { FRAMES, frameMarks, type BowlingLane } from "../../../shared/sports/bowling";
 import type { GameState } from "../../../shared/types";
-import { ar, esc } from "../../net";
+import { ar, esc, pieceSrc } from "../../net";
 
 /** HTML overlays drawn over the 3D alley: scorecards, players, big "سترايك!" shouts. */
 
-const duckSrc = (d: number) => `assets/tokens/token${d}.png`;
+const duckSrc = (d: number) => pieceSrc(d);
 
 function mark(m: string) {
   if (m === "X") return `<b class="r x"><span>X</span></b>`;

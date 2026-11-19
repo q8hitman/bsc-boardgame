@@ -11,12 +11,12 @@ import type { PoolShot } from "../../shared/pool/types";
 import { loadSportView, type SportView } from "../sports/view";
 import { placeholderView } from "../sports/placeholder";
 import type { GameState, Player } from "../../shared/types";
-import { ar, Clock, connect, esc, icon, isLocal, joinUrl, tokenImg } from "../net";
+import { ar, Clock, connect, esc, icon, isLocal, joinUrl, pieceSrc, setFaces, tokenImg } from "../net";
 import { initAudio, sfx } from "../sfx";
 import { BoardView, H, W, type BoardScene } from "./board";
 import { CardTable } from "./table";
 
-const duckImg = (p: Player | { duck: number }) => `assets/tokens/token${p.duck}.png`;
+const duckImg = (p: Player | { duck: number }) => pieceSrc(p.duck);
 
 /** Phone mode: the whole game inside a player's phone (no big screen in the room). The page that hosts it feeds
  *  every state in, so it shares the player's own connection instead of joining as a screen. */
@@ -120,7 +120,10 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
       if (saved) sock.emit("screen:resume", saved, (ok) => !ok && create());
       else create();
     });
-    sock.on("state", (s) => onState(s));
+    sock.on("state", (s) => {
+      setFaces(s);
+      onState(s);
+    });
     sock.on("fb:frame", (f) => sportView?.fbFrame?.(f));
   }
   function onState(s: GameState) {
@@ -175,7 +178,7 @@ export async function startDisplay(root: HTMLElement, opts: DisplayOpts = {}): P
     const b = $("banner");
     b.classList.remove("hidden");
     b.classList.toggle("with-piece", piece !== undefined);
-    b.innerHTML = `${piece !== undefined ? `<img class="bn-piece" src="assets/tokens/token${piece}.png" alt="">` : ""}<div class="bn-text"><h2>${esc(title)}</h2>${text ? `<p>${esc(text)}</p>` : ""}<div id="timer" class="hidden"><i></i></div></div>`;
+    b.innerHTML = `${piece !== undefined ? `<img class="bn-piece" src="${pieceSrc(piece)}" alt="">` : ""}<div class="bn-text"><h2>${esc(title)}</h2>${text ? `<p>${esc(text)}</p>` : ""}<div id="timer" class="hidden"><i></i></div></div>`;
     b.style.animation = "none";
     void b.offsetWidth;
     b.style.animation = "";

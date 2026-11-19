@@ -1,13 +1,13 @@
 import { DUCKS } from "../../../shared/data";
 import type { PoolTable } from "../../../shared/pool/types";
 import type { GameState } from "../../../shared/types";
-import { ar, esc } from "../../net";
+import { ar, esc, pieceSrc } from "../../net";
 import { ballColor } from "./textures";
 
 /** HTML overlays over the 3D table: players and the balls they potted, whose turn, the power bar, the spin
  *  widget and the big "دخلت!" shouts. */
 
-const duckSrc = (d: number) => `assets/tokens/token${d}.png`;
+const duckSrc = (d: number) => pieceSrc(d);
 
 /** A little pool ball for the HUD. */
 export function miniBall(n: number) {

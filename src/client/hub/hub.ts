@@ -33,12 +33,11 @@ export const onChip = (fn: () => void) => {
   chipClick = fn;
 };
 
-/** a club character's face: the top of their idle frame (frame 0 of their blue strip), cropped round */
+/** a club character's face: the top of their idle frame (frame 0 of their blue strip), cropped round. Sized in
+ *  percent of the circle, so CSS can size it (size 0 = no inline size). */
 export function avatarHtml(char: string, size: number, cls = ""): string {
-  const k = (size * 1.3) / 72;
-  const x = Math.round((size - 64 * k) / 2);
-  const y = Math.round(size * 0.04);
-  return `<span class="av ${cls}" style="width:${size}px;height:${size}px;background-image:url(assets/football/${esc(char)}-blue.png);background-size:${Math.round(384 * k)}px ${Math.round(72 * k)}px;background-position:${x}px ${y}px"></span>`;
+  const sz = size ? `width:${size}px;height:${size}px;` : "";
+  return `<span class="av ${cls}" style="${sz}background-image:url(assets/football/${esc(char)}-blue.png)"></span>`;
 }
 
 const nameOr = (n: string) => (n.trim() ? n.trim() : "ضيف");

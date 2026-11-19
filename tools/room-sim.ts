@@ -168,6 +168,17 @@ await wait(5);
 await ask<Res>(pz2, "player:join", { code: pzm.ok ? pzm.code : "", name: "ط", profileId: "ab12cd34ef56" });
 ok(pzr?.state.players.some((p) => p.profileId === "ab12cd34ef56"), "a normal hex profile id is kept");
 
+// a player's duck (their face outside board games): only a club character id is kept
+const ch1 = srv.connect();
+await wait(5);
+const chm = await ask<Res>(ch1, "room:create", { name: "ك", char: "<img onerror=x>" });
+const chr = chm.ok ? srv.rooms.get(chm.code) : undefined;
+ok(chr && chr.state.players[0].char === undefined, "a made-up duck is dropped by the server");
+const ch2 = srv.connect();
+await wait(5);
+await ask<Res>(ch2, "player:join", { code: chm.ok ? chm.code : "", name: "ل", char: "tima" });
+ok(chr?.state.players.some((p) => p.char === "tima"), "a club character is kept as the player's duck");
+
 for (const x of srv.rooms.values()) x.dispose();
 console.log(fails ? `FAIL (${fails})` : "PASS");
 process.exit(fails ? 1 : 0);
