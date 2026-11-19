@@ -134,7 +134,7 @@ function home() {
       } catch {
         /* private mode: the setup page still opens */
       }
-      go("?local", "local")();
+      go(`?local&game=${id}`, "local", ["game", id])();
     };
   }
 

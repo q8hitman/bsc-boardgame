@@ -43,6 +43,11 @@ export function startLocal(app: HTMLElement) {
     }
   };
 
+  // opened from a game's card on the home page (?local&game=…): that game is already chosen, so the page shows it
+  // with its options and the play button, not the whole list again ("غيّر اللعبة" brings the list back)
+  const asked = new URLSearchParams(location.search).get("game");
+  let focused = !!asked && GAMES.some((g) => g.id === asked);
+  if (focused) cfg.game = asked!;
   function setup() {
     const game = GAMES.find((g) => g.id === cfg.game) ?? GAMES[0];
     if (game.id === "football") warmFootball();
@@ -58,19 +63,21 @@ export function startLocal(app: HTMLElement) {
         <a class="lp-back" href="./">→ رجوع</a>
         <h1>العب على هالجهاز</h1>
         <p class="lp-sub">كل شي على شاشة وحدة: البورد ولوحة كل لاعب، والكمبيوتر يكمّل الباقين</p>
-        <h3>اختار اللعبة</h3>
-        <div class="lp-games">${GAMES.map((g) => `<button class="${g.id === cfg.game ? "on" : ""}" data-game="${g.id}"><img src="assets/thumbs/${g.id}.jpg" alt=""><span>${esc(g.name)}</span></button>`).join("")}</div>
+        ${focused
+          ? `<div class="lp-chosen"><img src="assets/thumbs/${game.id}.jpg" alt=""><b>${esc(game.name)}</b><button class="link-btn" id="lpChange">غيّر اللعبة</button></div>`
+          : `<h3>اختار اللعبة</h3>
+        <div class="lp-games">${GAMES.map((g) => `<button class="${g.id === cfg.game ? "on" : ""}" data-game="${g.id}"><img src="assets/thumbs/${g.id}.jpg" alt=""><span>${esc(g.name)}</span></button>`).join("")}</div>`}
         <h3>كم واحد بيلعب على هالجهاز؟</h3>
         <div class="lp-seg">${[1, 2].map((n) => `<button class="${cfg.humans === n ? "on" : ""}" data-humans="${n}">${n === 1 ? "بروحي" : "اثنين"}</button>`).join("")}</div>
         <div class="lp-names">${Array.from({ length: cfg.humans }, (_, i) => `<label><span>${cfg.humans > 1 ? `اللاعب ${ar(i + 1)}` : "اسمك"}</span><input data-name="${i}" maxlength="14" value="${esc(cfg.names[i] ?? "")}"></label>`).join("")}</div>
-        <h3>لاعبين كمبيوتر</h3>
+        ${game.id === "football" ? `<p class="lp-sub">الكمبيوتر يكمّل الفريقين (٥ ضد ٥)</p>` : `<h3>لاعبين كمبيوتر</h3>
         ${cards
           ? `<div class="lp-step"><button id="bm">−</button><b>${ar(cfg.bots)}</b><button id="bp">+</button></div>`
-          : `<p class="lp-sub">البورد ${ar(BOARD_SEATS)} لاعبين دايماً، فالكمبيوتر ياخذ ${ar(cfg.bots)} ${cfg.bots === 1 ? "كرسي" : "كراسي"}</p>`}
+          : `<p class="lp-sub">البورد ${ar(BOARD_SEATS)} لاعبين دايماً، فالكمبيوتر ياخذ ${ar(cfg.bots)} ${cfg.bots === 1 ? "كرسي" : "كراسي"}</p>`}`}
         ${game.id === "football" ? `<h3>مستوى الكمبيوتر</h3><div class="lp-seg">${["سهل", "عادي", "صعب"].map((n, i) => `<button class="${cfg.level === i ? "on" : ""}" data-level="${i}">${n}</button>`).join("")}</div>` : ""}
         ${game.rounds ? `<h3>عدد الجولات</h3><div class="lp-step"><button id="rm">−</button><b>${ar(cfg.rounds)}</b><button id="rp">+</button></div>` : ""}
         ${cfg.humans > 1 ? `<p class="lp-keys">بالميني قيمز: اللاعب الأول يضغط <kbd>A</kbd> (وخيار ثاني <kbd>S</kbd>)، والثاني <kbd>L</kbd> (وخيار ثاني <kbd>K</kbd>). أو اضغطوا على لوحاتكم.</p>` : ""}
-        <button class="big-btn green" id="go">يلا نلعب (${ar(cfg.humans + cfg.bots)} لاعبين)</button>
+        <button class="big-btn green" id="go">${game.id === "football" ? "يلا نلعب" : `يلا نلعب (${ar(cfg.humans + cfg.bots)} لاعبين)`}</button>
       </div>`;
     app.querySelectorAll<HTMLButtonElement>("[data-game]").forEach((b) => (b.onclick = () => {
       cfg.game = b.dataset.game!;
@@ -78,6 +85,10 @@ export function startLocal(app: HTMLElement) {
       save();
       setup();
     }));
+    app.querySelector("#lpChange")?.addEventListener("click", () => {
+      focused = false;
+      setup();
+    });
     app.querySelectorAll<HTMLButtonElement>("[data-humans]").forEach((b) => (b.onclick = () => {
       cfg.humans = Number(b.dataset.humans);
       save();
@@ -138,7 +149,7 @@ export function startLocal(app: HTMLElement) {
       <div class="lp-game h${cfg.humans}">
         <div class="lp-board" id="lpBoard"></div>
         ${Array.from({ length: cfg.humans }, (_, i) => `<div class="lp-panel p${i}" id="lpP${i}"></div>`).join("")}
-        <a class="lp-exit" href="?local" title="رجوع">✕</a>
+        <a class="lp-exit" href="?local&game=${cfg.game}" title="رجوع">✕</a>
       </div>`;
     const { startDisplay } = await import("../display/display");
     void startDisplay(app.querySelector<HTMLDivElement>("#lpBoard")!);
@@ -158,6 +169,7 @@ export function startLocal(app: HTMLElement) {
     for (let i = 0; i < botsFor(cfg.humans); i++) room.addBot();
     if (cfg.rounds && BOARDS[cfg.game]) room.setRounds(cfg.rounds);
     room.start();
+    againOnRestart(room);
   }
   /** football fills both teams with the computer by itself; pool is best one-on-one */
   function botsFor(humans: number) {
@@ -167,7 +179,7 @@ export function startLocal(app: HTMLElement) {
   }
 
   async function playPhone(server: ReturnType<typeof useLocalServer>) {
-    app.innerHTML = `<div id="lpP0"></div><a class="lp-exit ph-exit" href="?local" title="رجوع">✕</a>`;
+    app.innerHTML = `<div id="lpP0"></div><a class="lp-exit ph-exit" href="?local&game=${cfg.game}" title="رجوع">✕</a>`;
     // the room is made the usual way (a screen creates it); this phone then joins as the only person
     server.connect().emit("screen:create", () => {});
     while (!server.room) await new Promise((r) => setTimeout(r, 40));
@@ -184,6 +196,24 @@ export function startLocal(app: HTMLElement) {
     for (let i = 0; i < botsFor(1); i++) room.addBot();
     if (cfg.rounds && BOARDS[cfg.game]) room.setRounds(cfg.rounds);
     room.start();
+    againOnRestart(room);
+  }
+  /** "لعبة جديدة" at the end sends the room back to its lobby. On this device there is nobody to set it up and press
+   *  start there (that was a dead end: your duck, a name box and the characters, nothing to tap), so the same game
+   *  starts again straight away with the same settings */
+  function againOnRestart(room: NonNullable<ReturnType<typeof useLocalServer>["room"]>) {
+    let played = false;
+    const t = setInterval(() => {
+      if (!document.body.contains(app) || !document.body.classList.contains("lp-on")) return clearInterval(t);
+      const ph = room.state.phase;
+      if (ph !== "lobby") played = true;
+      else if (played) {
+        played = false;
+        pickCourse(room, cfg.level);
+        if (cfg.rounds && BOARDS[cfg.game]) room.setRounds(cfg.rounds);
+        room.start();
+      }
+    }, 300);
   }
 
   setup();
