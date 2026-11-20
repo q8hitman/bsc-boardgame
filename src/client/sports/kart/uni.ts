@@ -10,6 +10,7 @@ import * as THREE from "three";
 import { Track, type TrackDef } from "./track";
 import { pushOut, solid, type Solid } from "./campus";
 import { blimp, confetti, lifeBlock, pearl, scienceBlock, whiteBlock } from "./campusArt";
+import { bigScreen, bouncyCastle, dnaHelix, gantries, golfCarts, hotAirBalloons, molecules, picnics, rubberDuck, skyline, stage, tents, trackside } from "./fun";
 import { balloonArch, bannerTex, benches, birds, crowd, flags, fountain, greenery, lamps, noiseTex, sky, walkers, type Tick } from "./life";
 
 export const UNI: TrackDef = {
@@ -758,7 +759,41 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
     ticks.push(walkers(scene, more));
   }
 
-  // shadows: everything standing casts; the ground and roads receive
+  // ---------------------------------------------------------------- race-day fun (see fun.ts)
+  {
+    const fc = { scene, main, fits, take, clear, rnd };
+    const gi = 20;
+    const gn = gal.normal(gi);
+    const helix = dnaHelix(fc, gal.P[gi].x + gn.x * 16, gal.P[gi].z + gn.z * 16);
+    if (helix) ticks.push(helix);
+    ticks.push(molecules(fc, college.map(([x, z]) => [x, z] as [number, number])));
+    ticks.push(rubberDuck(fc, pr.pool.x, pr.pool.z, 0.9));
+    ticks.push(hotAirBalloons(fc, new THREE.Vector3(-30, 0, 120), 7));
+    gantries(fc, [0.12, 0.38, 0.62, 0.86], [
+      ["سباق البط", "#ffd23f", "#1b1440"],
+      ["نادي العلوم الحيوية", "#1b6b4a", "#ffffff"],
+      ["جامعة الكويت", "#1d3b8f", "#ffffff"],
+      ["حفلة البط", "#ff3d6e", "#ffffff"],
+    ]);
+    const screen = bigScreen(fc, 0.05, ["fayzah", "tima", "ali", "ahmad", "abdullah", "rawan", "camel", "shouq"]);
+    if (screen) ticks.push(screen);
+    const st = stage(fc, -40, 100);
+    if (st) {
+      ticks.push(st.tick);
+      ticks.push(crowd(scene, st.front));
+    }
+    const castle = bouncyCastle(fc, 40, 60);
+    if (castle) ticks.push(castle);
+    tents(fc, -100, 140, 6);
+    tents(fc, 30, 250, 4);
+    ticks.push(crowd(scene, picnics(fc, 14, [-90, 70, -10, 250])));
+    ticks.push(golfCarts(fc, 5));
+    trackside(fc);
+    skyline(scene, new THREE.Vector3(-30, 0, 120), 0.9, 430);
+  }
+
+  // shadows: big things cast; the ground and roads receive
+  scene.updateMatrixWorld(true);
   scene.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
@@ -768,8 +803,16 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
     }
     const mat = m.material as THREE.Material;
     if ((mat as THREE.MeshBasicMaterial).isMeshBasicMaterial) return;
-    m.castShadow = true;
     m.receiveShadow = true;
+    // only big things cast shadows (small props in the shadow pass cost more than they show)
+    if ((m as THREE.InstancedMesh).isInstancedMesh) {
+      m.castShadow = true;
+      return;
+    }
+    if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+    const sc = new THREE.Vector3();
+    m.getWorldScale(sc);
+    m.castShadow = (m.geometry.boundingSphere?.radius ?? 0) * Math.max(sc.x, sc.y, sc.z) > 3;
   });
   return { tick: (dt, t, cam) => ticks.forEach((f) => f(dt, t, cam)), sun, solids };
 }

@@ -314,8 +314,10 @@ export function crowd(scene: THREE.Scene, spots: THREE.Vector3[]): Tick {
   });
   return (_dt, t, cam) => {
     for (const s of people) {
-      // only the ones near the camera bother jumping
-      if (s.position.distanceToSquared(cam.position) > 120 * 120) continue;
+      // only the ones near the camera are drawn and jump (hundreds of far-off sprites cost a phone a lot)
+      const d2 = s.position.distanceToSquared(cam.position);
+      s.visible = d2 < 95 * 95;
+      if (!s.visible) continue;
       s.position.y = s.userData.y + Math.max(0, Math.sin(t * s.userData.speed + s.userData.phase)) * 0.6;
     }
   };
@@ -333,6 +335,7 @@ export function walkers(scene: THREE.Scene, routes: [THREE.Vector3, THREE.Vector
   return (dt, t, cam) => {
     right.set(1, 0, 0).applyQuaternion(cam.quaternion);
     for (const w of list) {
+      w.s.visible = w.s.position.distanceToSquared(cam.position) < 110 * 110;
       w.u += (w.dir * w.speed * dt) / w.len;
       if (w.u > 1 || w.u < 0) {
         w.dir *= -1;
