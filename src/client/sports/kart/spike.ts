@@ -8,6 +8,7 @@ import { NEON, buildNeon } from "./neon";
 import { UNI, buildUni } from "./uni";
 import { CAMPUS, buildCampus, pushOut, type Solid } from "./campus";
 import { SOUQ, buildSouq } from "./souq";
+import { KartAudio } from "./audio";
 import { profile } from "../../profile";
 import "./kart.css";
 
@@ -284,9 +285,30 @@ export function startKartSpike(app: HTMLElement) {
   document.body.style.overflow = "hidden";
   app.innerHTML = `<div class="kt-root"><canvas class="kt-cv"></canvas>
     <div class="kt-hud"><div class="kt-pos" id="ktPos">١/٨</div><div class="kt-lap" id="ktLap">لفة ١/${LAPS}</div><div class="kt-time" id="ktTime">0:00.0</div></div>
-    <div class="kt-fps" id="ktFps"></div><div class="kt-msg" id="ktMsg"></div><div class="kt-boost" id="ktBoost"></div>
+    <div class="kt-fps" id="ktFps"></div><div class="kt-msg" id="ktMsg"></div><div class="kt-boost" id="ktBoost"></div><button type="button" class="kt-mute" id="ktMute">🔊</button>
     <div class="kt-car" id="ktCar"></div></div>`;
   const root = app.querySelector<HTMLDivElement>(".kt-root")!;
+  const audio = new KartAudio(PICK === "souq" ? "hijaz" : "major");
+  let muted = false;
+  try {
+    muted = localStorage.getItem("kart-muted") === "1";
+  } catch {
+    /* (no storage) */
+  }
+  audio.setMuted(muted);
+  const muteBtn = app.querySelector<HTMLButtonElement>("#ktMute")!;
+  muteBtn.textContent = muted ? "🔇" : "🔊";
+  muteBtn.onclick = (e) => {
+    e.stopPropagation();
+    muted = !muted;
+    audio.setMuted(muted);
+    muteBtn.textContent = muted ? "🔇" : "🔊";
+    try {
+      localStorage.setItem("kart-muted", muted ? "1" : "0");
+    } catch {
+      /* (no storage) */
+    }
+  };
   const cv = app.querySelector<HTMLCanvasElement>(".kt-cv")!;
   const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: false, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
@@ -414,6 +436,7 @@ export function startKartSpike(app: HTMLElement) {
     // drift: press while turning; you keep turning that way, the stick makes it tighter or wider; release = boost
     if (inp.drift && !k.drift && !k.air && !driftWait && k.speed > 10) {
       k.vy = 3.2; // a little hop
+      audio.hop();
       k.air = true;
       if (Math.abs(inp.steer) > 0.15) {
         k.drift = Math.sign(inp.steer);
@@ -549,7 +572,10 @@ export function startKartSpike(app: HTMLElement) {
     if (ds > LEN / 2) ds -= LEN;
     k.progress += ds;
     const lap = Math.floor(k.progress / LEN) + 1;
-    if (lap > k.lap) k.lap = lap;
+    if (lap > k.lap) {
+      if (k.me && k.lap >= 1 && lap <= LAPS) audio.lap();
+      k.lap = lap;
+    }
     const g = track.ground(k.x, k.z, k.y, { path: k.path, i: k.i });
     // already well below the road (fell short of a jump): keep falling, don't pop back up through it
     if (k.air && k.y < g.h - 1.2) g.h = -60;
@@ -558,6 +584,7 @@ export function startKartSpike(app: HTMLElement) {
       k.x = g.edgeX;
       k.z = g.edgeZ!;
       k.speed *= 1 - 1.2 * dt;
+      if (k.me && Math.random() < dt * 6) audio.scrape();
     }
     // buildings: you bump off them
     if (solids.length && pushOut(solids, k, 1.1)) {
@@ -570,6 +597,7 @@ export function startKartSpike(app: HTMLElement) {
     k.y += k.vy * dt;
     if (k.y <= g.h) {
       if (k.air && k.vy < -12 && k.me) shake = 0.25;
+      if (k.air && k.vy < -6 && k.me) audio.land();
       k.vy = k.air ? 0 : (g.h - k.y) / dt;
       k.y = g.h;
       k.air = false;
@@ -583,6 +611,7 @@ export function startKartSpike(app: HTMLElement) {
       }
     // fell (into the canal, off the edge): back on the road a moment later
     if (k.y < -5) {
+      if (k.me && k.fallT === 0) audio.splash();
       k.fallT += dt;
       if (k.fallT > 0.9) {
         // (after a fall on a shortcut, back where it left the main road)
@@ -624,6 +653,7 @@ export function startKartSpike(app: HTMLElement) {
         const d = Math.hypot(dx, dz);
         if (d > 0.01 && d < 2.2 && Math.abs(A.y - B.y) < 1.5) {
           const push = 2.2 - d;
+          if ((A.me || B.me) && Math.random() < 0.2) audio.bump();
           const wa = A.stats.weight;
           const wb = B.stats.weight;
           const pa = (push * wb) / (wa + wb);
@@ -639,6 +669,7 @@ export function startKartSpike(app: HTMLElement) {
   let shake = 0;
   const boostEl = $("ktBoost");
   function flashBoost(tier: number) {
+    audio.boost(tier);
     boostEl.textContent = tier === 3 ? "تيربو!!!" : tier === 2 ? "تيربو!!" : "تيربو!";
     boostEl.className = `kt-boost on t${tier}`;
     setTimeout(() => (boostEl.className = "kt-boost"), 700);
@@ -664,13 +695,16 @@ export function startKartSpike(app: HTMLElement) {
     }
     const force = (window as unknown as { __kart: { force?: Input } }).__kart.force;
     const inp = force ?? read(dt);
+    audio.update(me.speed, inp.gas || inp.drift, me.drift ? tierOf(me.driftT) : -1, ready && countdown === 0 && !finished);
     // countdown
     if (!ready) {
       t0 = now;
     } else if (countdown > 0) {
       const left = 3 - (now - t0) / 1000;
       const c = Math.ceil(left);
-      $("ktMsg").textContent = c > 0 ? ar(c) : "انطلق!";
+      const shown = c > 0 ? ar(c) : "انطلق!";
+      if ($("ktMsg").textContent !== shown) audio.countdown(c);
+      $("ktMsg").textContent = shown;
       if (left <= 0) {
         countdown = 0;
         carEl.style.display = "none";
@@ -692,6 +726,7 @@ export function startKartSpike(app: HTMLElement) {
     $("ktTime").textContent = fmt(raceT);
     if (!finished && me.lap > LAPS) {
       finished = true;
+      audio.finish();
       $("ktMsg").innerHTML = `خلصت! المركز ${ar(pos)}<small>${fmt(raceT)} · اضغط لسباق جديد</small>`;
       root.addEventListener("pointerdown", () => location.reload(), { once: true });
     }
