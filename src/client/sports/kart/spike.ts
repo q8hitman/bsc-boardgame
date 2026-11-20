@@ -2,208 +2,27 @@
  *  kart with drift + mini-turbo, 7 computer karts, a chase camera, laps, a timer and an FPS meter. Phone: drag on the
  *  left to steer, hold «درفت» on the right. Keyboard: arrows / WASD, Space or Shift = drift. Open with ?kart. */
 import * as THREE from "three";
-import { kartMesh } from "./kartModel";
+import { kartMesh, lookFor } from "./kartModel";
+import { Track } from "./track";
+import { NEON, buildNeon } from "./neon";
 import { profile } from "../../profile";
 import "./kart.css";
 
 const LAPS = 3;
-const ROAD_W = 7; // half width (m)
 const MAX_ROAD = 30;
 const MAX_GRASS = 13;
 const ACCEL = 16;
 const BOOST = [0, 0.7, 1.3]; // seconds of boost per spark tier
 const TIER_AT = [0.32, 0.85]; // drift charge (seconds of turning into it) for blue / orange sparks
-const POND = { x: -35, z: 108, r: 26 };
 
-// ---------------------------------------------------------------- the track: a closed curve with heights
-const PTS: [number, number, number][] = [
-  [0, 0, 0], [70, 0, -4], [130, 0, 10], [168, 0, 55], [172, 0, 108], [150, 0, 150], [110, 1, 168], [70, 5, 160],
-  [32, 9, 140], [-8, 9.5, 118], [-55, 9.5, 102], [-92, 5, 104], [-125, 1.5, 82], [-140, 0, 40], [-128, 0, -4],
-  [-92, 0, -30], [-48, 0, -26], [-18, 0, -10],
-];
-const curve = new THREE.CatmullRomCurve3(PTS.map(([x, y, z]) => new THREE.Vector3(x, y, z)), true, "centripetal");
-const N = 1600;
-const P: THREE.Vector3[] = [];
-const T: THREE.Vector3[] = [];
-const S: number[] = []; // distance along the track at each sample
-for (let i = 0; i < N; i++) {
-  P.push(curve.getPointAt(i / N));
-  T.push(curve.getTangentAt(i / N).setY(0).normalize());
-}
-let LEN = 0;
-for (let i = 0; i < N; i++) {
-  S.push(LEN);
-  LEN += P[i].distanceTo(P[(i + 1) % N]);
-}
-const normalAt = (i: number) => new THREE.Vector3(-T[i].z, 0, T[i].x); // left of travel
-
-/** nearest sample to (x, z), searching around a hint index (karts move a little each frame) */
-function nearest(x: number, z: number, hint: number, span = 60): number {
-  let best = hint;
-  let bd = Infinity;
-  for (let k = -span; k <= span; k++) {
-    const i = (hint + k + N) % N;
-    const dx = P[i].x - x;
-    const dz = P[i].z - z;
-    const d = dx * dx + dz * dz;
-    if (d < bd) {
-      bd = d;
-      best = i;
-    }
-  }
-  return best;
-}
-function nearestGlobal(x: number, z: number): number {
-  let best = 0;
-  let bd = Infinity;
-  for (let i = 0; i < N; i += 4) {
-    const d = (P[i].x - x) ** 2 + (P[i].z - z) ** 2;
-    if (d < bd) {
-      bd = d;
-      best = i;
-    }
-  }
-  return nearest(x, z, best, 6);
-}
-const inPond = (x: number, z: number) => (x - POND.x) ** 2 + (z - POND.z) ** 2 < POND.r ** 2;
-/** the ground: the road's height on and near the road, sloping down to the field; the pond is below */
-function groundAt(x: number, z: number, i: number): { h: number; lat: number; road: boolean } {
-  const n = normalAt(i);
-  const lat = (x - P[i].x) * n.x + (z - P[i].z) * n.z;
-  const off = Math.abs(lat) - ROAD_W;
-  const road = off <= 0;
-  if (road) return { h: P[i].y, lat, road };
-  // the bridge: a deck with nothing under it over the pond
-  if (P[i].y > 6 && inPond(x, z)) return { h: -2, lat, road };
-  const fall = Math.max(0, 1 - off / 16);
-  return { h: inPond(x, z) ? -2 : P[i].y * fall * fall, lat, road };
-}
-
-// ---------------------------------------------------------------- scene building
-function buildTrack(scene: THREE.Scene) {
-  // road ribbon, kerbs, centre dashes
-  const road: number[] = [];
-  const kerb: number[] = [];
-  const kerbCol: number[] = [];
-  const dash: number[] = [];
-  const quad = (arr: number[], a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3) =>
-    arr.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, b.x, b.y, b.z, d.x, d.y, d.z, c.x, c.y, c.z);
-  const edge = (i: number, off: number, lift = 0.05) => {
-    const n = normalAt(i);
-    return new THREE.Vector3(P[i].x + n.x * off, P[i].y + lift, P[i].z + n.z * off);
-  };
-  for (let i = 0; i < N; i++) {
-    const j = (i + 1) % N;
-    quad(road, edge(i, ROAD_W), edge(j, ROAD_W), edge(i, -ROAD_W), edge(j, -ROAD_W));
-    for (const side of [1, -1]) {
-      quad(kerb, edge(i, side * ROAD_W, 0.08), edge(j, side * ROAD_W, 0.08), edge(i, side * (ROAD_W + 1.2), 0.08), edge(j, side * (ROAD_W + 1.2), 0.08));
-      const red = Math.floor(S[i] / 3) % 2 === 0;
-      const c = red ? [0.86, 0.16, 0.14] : [0.97, 0.97, 0.95];
-      for (let k = 0; k < 6; k++) kerbCol.push(...c);
-    }
-    if (Math.floor(S[i] / 4) % 2 === 0) quad(dash, edge(i, 0.18, 0.07), edge(j, 0.18, 0.07), edge(i, -0.18, 0.07), edge(j, -0.18, 0.07));
-  }
-  const mk = (pos: number[], mat: THREE.Material, colors?: number[]) => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    if (colors) g.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-    g.computeVertexNormals();
-    const m = new THREE.Mesh(g, mat);
-    scene.add(m);
-    return m;
-  };
-  mk(road, new THREE.MeshLambertMaterial({ color: 0x55595f, side: THREE.DoubleSide }));
-  mk(kerb, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), kerbCol);
-  mk(dash, new THREE.MeshBasicMaterial({ color: 0xf2f2f2, side: THREE.DoubleSide }));
-
-  // the field: a grid shaped by groundAt (computed against a coarse track for speed)
-  const G = 140;
-  const SIZE = 420;
-  const ground = new THREE.PlaneGeometry(SIZE, SIZE, G, G);
-  ground.rotateX(-Math.PI / 2);
-  ground.translate(15, 0, 70);
-  const pos = ground.attributes.position as THREE.BufferAttribute;
-  const col: number[] = [];
-  for (let v = 0; v < pos.count; v++) {
-    const x = pos.getX(v);
-    const z = pos.getZ(v);
-    const i = nearestGlobal(x, z);
-    const g = groundAt(x, z, i);
-    // (the road itself sits on its own ribbon: keep the field just under it)
-    pos.setY(v, g.road ? P[i].y - 0.3 : g.h - 0.02);
-    const w = inPond(x, z) ? [0.75, 0.68, 0.45] : (Math.floor(x / 12) + Math.floor(z / 12)) % 2 ? [0.36, 0.72, 0.25] : [0.33, 0.67, 0.23];
-    col.push(...w);
-  }
-  ground.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  ground.computeVertexNormals();
-  scene.add(new THREE.Mesh(ground, new THREE.MeshLambertMaterial({ vertexColors: true })));
-
-  // the pond
-  const water = new THREE.Mesh(new THREE.CircleGeometry(POND.r + 2, 40), new THREE.MeshLambertMaterial({ color: 0x3aa7e6, transparent: true, opacity: 0.85 }));
-  water.rotation.x = -Math.PI / 2;
-  water.position.set(POND.x, -0.6, POND.z);
-  scene.add(water);
-
-  // bridge pillars and rails where the road is high
-  const pillar = new THREE.CylinderGeometry(0.8, 0.8, 1, 8);
-  const pmat = new THREE.MeshLambertMaterial({ color: 0xd9cdb4 });
-  const rail = new THREE.BoxGeometry(0.4, 0.9, 1);
-  const rmat = new THREE.MeshLambertMaterial({ color: 0xf4a62a });
-  for (let i = 0; i < N; i += 8) {
-    if (P[i].y < 6) continue;
-    for (const side of [1, -1]) {
-      const e = edge(i, side * (ROAD_W + 1.6), 0);
-      const r = new THREE.Mesh(rail, rmat);
-      r.position.set(e.x, P[i].y + 0.45, e.z);
-      r.scale.z = 4.2;
-      r.rotation.y = Math.atan2(T[i].x, T[i].z);
-      scene.add(r);
-      if (i % 32 === 0) {
-        const p = new THREE.Mesh(pillar, pmat);
-        p.scale.y = P[i].y + 2;
-        p.position.set(e.x, (P[i].y - 2) / 2, e.z);
-        scene.add(p);
-      }
-    }
-  }
-
-  // trees and cones (instanced, off the road)
-  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.4, 0.5, 3, 6), new THREE.MeshLambertMaterial({ color: 0x8a5a2b }), 160);
-  const leaves = new THREE.InstancedMesh(new THREE.ConeGeometry(2.6, 6, 7), new THREE.MeshLambertMaterial({ color: 0x2f9e44 }), 160);
-  const m = new THREE.Matrix4();
-  let n = 0;
-  let seed = 7;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  while (n < 160) {
-    const x = rnd() * 400 - 185;
-    const z = rnd() * 400 - 130;
-    const i = nearestGlobal(x, z);
-    const g = groundAt(x, z, i);
-    if (Math.abs(g.lat) < ROAD_W + 6 || inPond(x, z)) continue;
-    m.makeTranslation(x, g.h + 1.5, z);
-    trunk.setMatrixAt(n, m);
-    m.makeTranslation(x, g.h + 5.5, z);
-    leaves.setMatrixAt(n, m);
-    n++;
-  }
-  scene.add(trunk, leaves);
-
-  // start / finish arch
-  const arch = new THREE.Group();
-  const post = new THREE.BoxGeometry(0.8, 7, 0.8);
-  const am = new THREE.MeshLambertMaterial({ color: 0x1b1440 });
-  for (const side of [1, -1]) {
-    const p = new THREE.Mesh(post, am);
-    p.position.set(0, 3.5, side * (ROAD_W + 1.5));
-    arch.add(p);
-  }
-  const banner = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, ROAD_W * 2 + 4), new THREE.MeshLambertMaterial({ color: 0xffd23f }));
-  banner.position.set(0, 7, 0);
-  arch.add(banner);
-  arch.position.copy(P[0]);
-  arch.rotation.y = Math.atan2(T[0].x, T[0].z) - Math.PI / 2;
-  scene.add(arch);
-}
+const track = new Track(NEON);
+const main = track.paths[0];
+const LEN = track.LEN;
+/** boost pads in the world */
+const PADS = track.def.boosts.map(([pi, f]) => {
+  const p = track.paths[pi];
+  return p.P[Math.round(f * (p.n - 1))];
+});
 
 // ---------------------------------------------------------------- karts
 interface Kart {
@@ -216,6 +35,10 @@ interface Kart {
   heading: number;
   speed: number;
   i: number;
+  /** which road (0 = main, 1.. = shortcuts) */
+  path: number;
+  /** the last spot on solid road (to come back to after a fall) */
+  safe: { path: number; i: number };
   progress: number;
   lap: number;
   me: boolean;
@@ -277,15 +100,17 @@ function faceCamera(k: Kart, cam: THREE.Vector3) {
 function makeKart(scene: THREE.Scene, color: number, char: string, me: boolean): Kart {
   const g = new THREE.Group();
   const body = new THREE.Group();
-  body.add(kartMesh(color));
+  const km = kartMesh(lookFor(char, color));
+  body.add(km.group);
   const sprite = duckSprite(char);
+  if (sprite.userData.seated) sprite.position.set(0, km.seatY, km.seatZ);
   body.add(sprite);
   g.add(body);
   const blob = new THREE.Mesh(new THREE.CircleGeometry(1.5, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28 }));
   blob.rotation.x = -Math.PI / 2;
   scene.add(blob);
   scene.add(g);
-  const k: Kart = { g, body, x: 0, y: 0, z: 0, vy: 0, heading: 0, speed: 0, i: 0, progress: 0, lap: 0, me, drift: 0, driftT: 0, boostT: 0, air: false, lane: 0, pace: 1, blob, fallT: 0, sprite };
+  const k: Kart = { g, body, x: 0, y: 0, z: 0, vy: 0, heading: 0, speed: 0, i: 0, path: 0, safe: { path: 0, i: 0 }, progress: 0, lap: 0, me, drift: 0, driftT: 0, boostT: 0, air: false, lane: 0, pace: 1, blob, fallT: 0, sprite };
   if (me) {
     k.sparks = [-0.95, 0.95].map((x) => {
       const s = new THREE.Mesh(new THREE.SphereGeometry(0.28, 6, 6), new THREE.MeshBasicMaterial({ color: 0x55c8ff }));
@@ -304,17 +129,19 @@ function placeOnGrid(k: Kart, slot: number) {
   let i = 0;
   let d = 0;
   while (d < back) {
-    i = (i - 1 + N) % N;
-    d += P[i].distanceTo(P[(i + 1) % N]);
+    i = main.wrap(i - 1);
+    d += main.P[i].distanceTo(main.P[main.wrap(i + 1)]);
   }
-  const n = normalAt(i);
-  const side = slot % 2 ? -3 : 3;
-  k.x = P[i].x + n.x * side;
-  k.z = P[i].z + n.z * side;
-  k.y = P[i].y;
+  const n = main.normal(i);
+  const side = slot % 2 ? -3.2 : 3.2;
+  k.x = main.P[i].x + n.x * side;
+  k.z = main.P[i].z + n.z * side;
+  k.y = main.P[i].y;
   k.i = i;
-  k.heading = Math.atan2(T[i].x, T[i].z);
-  k.progress = S[i] - LEN;
+  k.path = 0;
+  k.safe = { path: 0, i };
+  k.heading = main.heading(i);
+  k.progress = main.prog[i] - LEN;
   k.lane = side;
 }
 
@@ -423,12 +250,6 @@ export function startKartSpike(app: HTMLElement) {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x8fd8ff);
-  scene.fog = new THREE.Fog(0x8fd8ff, 90, 260);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x5a7a3a, 1.6));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.3);
-  sun.position.set(60, 120, 40);
-  scene.add(sun);
   const camera = new THREE.PerspectiveCamera(70, 1, 0.3, 400);
   const size = () => {
     const w = root.clientWidth;
@@ -439,7 +260,7 @@ export function startKartSpike(app: HTMLElement) {
   };
   addEventListener("resize", size);
   size();
-  buildTrack(scene);
+  buildNeon(scene, track);
 
   // (spike: only the ducks drawn for the kart so far)
   const myChar = KART_ART.includes(profile().char) ? profile().char : "fayzah";
@@ -455,7 +276,11 @@ export function startKartSpike(app: HTMLElement) {
   const me = karts[7];
   const read = controls(root);
   // (debug handle for testing the feel from the console)
-  (window as unknown as { __kart: unknown }).__kart = { me, karts, LEN, P, T, N, force: undefined as Input | undefined };
+  (window as unknown as { __kart: unknown }).__kart = {
+    me, karts, LEN, track, force: undefined as Input | undefined,
+    // (testing: the point n samples ahead of a kart on its road, carrying on along the main road after a shortcut)
+    ahead: (k: Kart, n: number) => aheadOf(k, n),
+  };
 
   const $ = (id: string) => app.querySelector<HTMLElement>(`#${id}`)!;
   let t0 = performance.now();
@@ -473,7 +298,7 @@ export function startKartSpike(app: HTMLElement) {
   let driftWait = 0;
   function stepMe(dt: number, inp: Input) {
     const k = me;
-    const g = groundAt(k.x, k.z, k.i);
+    const g = track.ground(k.x, k.z, k.y, { path: k.path, i: k.i });
     const onRoad = g.road;
     let top = (onRoad ? MAX_ROAD : MAX_GRASS) * (k.drift ? 0.97 : 1);
     if (k.boostT > 0) {
@@ -534,15 +359,45 @@ export function startKartSpike(app: HTMLElement) {
     k.body.rotation.y = slip;
   }
 
+  /** the road point n samples ahead of a kart (off the end of a shortcut: on along the main road) */
+  function aheadOf(k: Kart, n: number) {
+    const p = track.paths[k.path];
+    if (p.closed) return { p, i: p.wrap(k.i + n) };
+    const j = k.i + n;
+    if (j < p.n) return { p, i: j };
+    return { p: main, i: main.wrap(p.exit + (j - (p.n - 1))) };
+  }
+  const lastI = new Map<Kart, number>();
   function stepAI(k: Kart, dt: number) {
     // they drive the line (lane offset), a touch faster when behind you, slower when far ahead
     const gap = k.progress - me.progress;
     const rubber = gap > 40 ? 0.94 : gap < -40 ? 1.06 : 1;
-    k.speed += (MAX_ROAD * k.pace * rubber - k.speed) * Math.min(1, dt * 0.8);
-    const ahead = (k.i + 14) % N;
-    const n = normalAt(ahead);
-    const tx = P[ahead].x + n.x * k.lane;
-    const tz = P[ahead].z + n.z * k.lane;
+    if (k.boostT > 0) k.boostT -= dt;
+    const top = MAX_ROAD * k.pace * rubber + (k.boostT > 0 ? 10 : 0);
+    k.speed += (top - k.speed) * Math.min(1, dt * 0.8);
+    // at a shortcut's mouth, maybe take it
+    if (k.path === 0) {
+      const was = lastI.get(k) ?? k.i;
+      for (let b = 1; b < track.paths.length; b++) {
+        const br = track.paths[b];
+        const passed = was <= k.i ? br.enter > was && br.enter <= k.i : br.enter > was || br.enter <= k.i;
+        if (passed && Math.random() < br.aiTake) {
+          k.path = b;
+          k.i = 0;
+          break;
+        }
+      }
+    } else if (k.i >= track.paths[k.path].n - 3) {
+      const br = track.paths[k.path];
+      k.path = 0;
+      k.i = track.nearestLocal(0, k.x, k.z, br.exit, 20);
+    }
+    lastI.set(k, k.i);
+    const { p, i: ahead } = aheadOf(k, 14);
+    const lane = Math.max(-(p.width - 2.2), Math.min(p.width - 2.2, k.lane));
+    const n = p.normal(ahead);
+    const tx = p.P[ahead].x + n.x * lane;
+    const tz = p.P[ahead].z + n.z * lane;
     const want = Math.atan2(tx - k.x, tz - k.z);
     let d = want - k.heading;
     while (d > Math.PI) d -= Math.PI * 2;
@@ -554,17 +409,31 @@ export function startKartSpike(app: HTMLElement) {
   }
 
   function settle(k: Kart, dt: number) {
-    const prevI = k.i;
-    k.i = nearest(k.x, k.z, k.i);
-    // progress along the track (laps)
-    let ds = S[k.i] - S[prevI];
+    const prevProg = track.paths[k.path].prog[k.i];
+    if (k.me) {
+      // you can be on any road: the nearest one at your height
+      const nn = track.nearest(k.x, k.z, k.y, k.path);
+      k.path = nn.path;
+      k.i = nn.i;
+    } else k.i = track.nearestLocal(k.path, k.x, k.z, k.i);
+    const p = track.paths[k.path];
+    // progress along the track (laps); a shortcut's progress is mapped onto the main road
+    let ds = p.prog[k.i] - prevProg;
     if (ds < -LEN / 2) ds += LEN;
     if (ds > LEN / 2) ds -= LEN;
     k.progress += ds;
     const lap = Math.floor(k.progress / LEN) + 1;
     if (lap > k.lap) k.lap = lap;
-    // height: on the ground, or flying off a crest
-    const g = groundAt(k.x, k.z, k.i);
+    const g = track.ground(k.x, k.z, k.y, { path: k.path, i: k.i });
+    // already well below the road (fell short of a jump): keep falling, don't pop back up through it
+    if (k.air && k.y < g.h - 1.2) g.h = -60;
+    // walls: off the road on a walled track you slide along the rail
+    if (g.edgeX !== undefined && !k.air && k.y > g.h - 1) {
+      k.x = g.edgeX;
+      k.z = g.edgeZ!;
+      k.speed *= 1 - 1.2 * dt;
+    }
+    // height: on the ground, or flying off a crest / over a gap
     k.vy -= 30 * dt;
     k.y += k.vy * dt;
     if (k.y <= g.h) {
@@ -573,31 +442,44 @@ export function startKartSpike(app: HTMLElement) {
       k.y = g.h;
       k.air = false;
     } else if (k.y > g.h + 0.4) k.air = true;
-    // fell in the pond: back on the road a moment later
-    if (g.h < -1 && k.y < -0.5) {
+    if (g.road && !k.air) k.safe = { path: k.path, i: k.i };
+    // boost pads
+    for (const q of PADS)
+      if (!k.air && (q.x - k.x) ** 2 + (q.z - k.z) ** 2 < 2.4 ** 2 && Math.abs(q.y - k.y) < 1.5 && k.boostT < 0.9) {
+        k.boostT = 1.0;
+        if (k.me) flashBoost(1);
+      }
+    // fell (into the canal, off the edge): back on the road a moment later
+    if (k.y < -5) {
       k.fallT += dt;
-      if (k.fallT > 0.8) {
-        const n = normalAt(k.i);
-        k.x = P[k.i].x + n.x * Math.max(-4, Math.min(4, g.lat));
-        k.z = P[k.i].z + n.z * Math.max(-4, Math.min(4, g.lat));
-        k.y = P[k.i].y + 2;
+      if (k.fallT > 0.9) {
+        // (after a fall on a shortcut, back where it left the main road)
+        const at = k.safe.path === 0 ? k.safe.i : track.paths[k.safe.path].enter;
+        k.path = 0;
+        k.i = at;
+        k.x = main.P[at].x;
+        k.z = main.P[at].z;
+        k.y = main.P[at].y + 1.5;
         k.vy = 0;
         k.speed = 6;
-        k.heading = Math.atan2(T[k.i].x, T[k.i].z);
+        k.heading = main.heading(at);
         k.fallT = 0;
         k.drift = 0;
+        k.air = true;
+        lastI.set(k, at);
       }
     }
     k.g.position.set(k.x, k.y, k.z);
     k.g.rotation.y = k.heading;
     // tilt with the slope of the road
-    const ahead = P[(k.i + 4) % N];
-    const behind = P[(k.i - 4 + N) % N];
-    const pitch = Math.atan2(ahead.y - behind.y, ahead.distanceTo(behind));
+    const q = track.paths[k.path];
+    const ahead = q.P[q.wrap(k.i + 4)];
+    const behind = q.P[q.wrap(k.i - 4)];
+    const pitch = Math.atan2(ahead.y - behind.y, Math.max(0.1, ahead.distanceTo(behind)));
     k.g.rotation.x = k.air ? k.g.rotation.x : -pitch;
-    k.blob.position.set(k.x, g.h + 0.05, k.z);
-    (k.blob.material as THREE.MeshBasicMaterial).opacity = Math.max(0.05, 0.3 - (k.y - g.h) * 0.04);
-    void dt;
+    const gh = g.h < -10 ? -2.4 : g.h;
+    k.blob.position.set(k.x, gh + 0.05, k.z);
+    (k.blob.material as THREE.MeshBasicMaterial).opacity = Math.max(0.05, 0.3 - (k.y - gh) * 0.04);
   }
 
   function bump() {
@@ -679,7 +561,7 @@ export function startKartSpike(app: HTMLElement) {
     const tall = camera.aspect < 1 ? 1.5 : 1;
     const back = (5.4 + Math.max(0, me.speed - MAX_ROAD) * 0.12) * tall;
     const ch = me.heading - (me.drift ? me.drift * 0.25 : 0);
-    const want = new THREE.Vector3(me.x - Math.sin(ch) * back, Math.max(me.y, groundAt(me.x, me.z, me.i).h) + 2.4 * tall, me.z - Math.cos(ch) * back);
+    const want = new THREE.Vector3(me.x - Math.sin(ch) * back, Math.max(me.y, track.ground(me.x, me.z, me.y, { path: me.path, i: me.i }).h) + 2.4 * tall, me.z - Math.cos(ch) * back);
     camPos.lerp(want, Math.min(1, dt * 14));
     camera.position.copy(camPos);
     if (shake > 0) {
@@ -688,7 +570,11 @@ export function startKartSpike(app: HTMLElement) {
     }
     look.set(me.x + Math.sin(me.heading) * 6, me.y + 1.2, me.z + Math.cos(me.heading) * 6);
     camera.lookAt(look);
-    for (const k of karts) faceCamera(k, camera.position);
+    for (const k of karts) {
+      faceCamera(k, camera.position);
+      // (a kart right on top of the camera would fill the screen: hide it for that moment)
+      if (!k.me) k.g.visible = camera.position.distanceToSquared(k.g.position) > 3.2 ** 2;
+    }
     const fov = 60 + Math.max(0, me.speed - 20) * 0.4 + (me.boostT > 0 ? 6 : 0);
     if (Math.abs(camera.fov - fov) > 0.2) {
       camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
