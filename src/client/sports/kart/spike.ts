@@ -325,7 +325,7 @@ interface Input {
   drift: boolean;
   item: boolean;
 }
-function controls(root: HTMLElement): () => Input {
+function controls(root: HTMLElement): (dt: number) => Input {
   const keys = new Set<string>();
   addEventListener("keydown", (e) => {
     keys.add(e.code);
@@ -335,7 +335,7 @@ function controls(root: HTMLElement): () => Input {
   addEventListener("blur", () => keys.clear());
   const ui = document.createElement("div");
   ui.className = "kt-ctrl";
-  ui.innerHTML = `<div class="kt-stick"><div class="kt-hint">اسحب يمين ويسار</div><i class="kt-knob"></i></div>
+  ui.innerHTML = `<div class="kt-stick"><div class="kt-hint">حط صبعك واسحب يمين ويسار</div><i class="kt-knob"></i></div>
     <div class="kt-btns"><button class="kt-drift" type="button">درفت</button><button class="kt-item" type="button">غرض</button></div>`;
   root.appendChild(ui);
   const zone = ui.querySelector<HTMLDivElement>(".kt-stick")!;
@@ -354,11 +354,14 @@ function controls(root: HTMLElement): () => Input {
   });
   zone.addEventListener("pointermove", (e) => {
     if (e.pointerId !== sid) return;
-    const dx = Math.max(-60, Math.min(60, e.clientX - ox));
+    const dx = Math.max(-75, Math.min(75, e.clientX - ox));
     const dy = e.clientY - oy;
-    touchSteer = dx / 60;
-    touchBrake = dy > 50;
-    knob.style.transform = `translate(${dx}px, ${Math.max(-20, Math.min(60, dy))}px)`;
+    // a small dead zone, then a soft curve: small moves make small turns, the edge is a full turn
+    const m = Math.max(0, Math.abs(dx) - 8) / 67;
+    touchSteer = Math.sign(dx) * (0.35 * m + 0.65 * m * m);
+    // braking only on a clear pull straight down (not a finger sliding while steering)
+    touchBrake = dy > 90 && dy > Math.abs(dx) * 2;
+    knob.style.transform = `translate(${dx}px, ${Math.max(-20, Math.min(90, dy))}px)`;
   });
   const up = (e: PointerEvent) => {
     if (e.pointerId !== sid) return;
@@ -390,12 +393,16 @@ function controls(root: HTMLElement): () => Input {
   };
   const driftBtn = hold(".kt-drift");
   const itemBtn = hold(".kt-item");
-  return () => {
+  let smooth = 0;
+  return (dt: number) => {
     const kl = keys.has("ArrowLeft") || keys.has("KeyA");
     const kr = keys.has("ArrowRight") || keys.has("KeyD");
-    const steer = kl || kr ? (kl ? -1 : 0) + (kr ? 1 : 0) : touchSteer;
+    const want = kl || kr ? (kl ? -1 : 0) + (kr ? 1 : 0) : touchSteer;
+    // eases toward the stick (faster when letting go or switching sides, so it never feels late)
+    const rate = Math.abs(want) < Math.abs(smooth) || want * smooth < 0 ? 10 : 6;
+    smooth += Math.sign(want - smooth) * Math.min(Math.abs(want - smooth), rate * dt);
     return {
-      steer,
+      steer: smooth,
       brake: keys.has("ArrowDown") || keys.has("KeyS") || touchBrake,
       drift: keys.has("Space") || keys.has("ShiftLeft") || keys.has("ShiftRight") || driftBtn(),
       item: keys.has("KeyE") || itemBtn(),
@@ -462,6 +469,7 @@ export function startKartSpike(app: HTMLElement) {
   const ar = (n: number) => String(n).replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[+d]);
   const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
+  let driftWait = 0;
   function stepMe(dt: number, inp: Input) {
     const k = me;
     const g = groundAt(k.x, k.z, k.i);
@@ -476,11 +484,22 @@ export function startKartSpike(app: HTMLElement) {
     const a = k.speed < target ? (k.boostT > 0 ? ACCEL * 2.2 : ACCEL) : -ACCEL * (inp.brake ? 1.6 : 0.9);
     k.speed += Math.sign(target - k.speed) * Math.min(Math.abs(target - k.speed), Math.abs(a) * dt);
     // drift: press while turning; you keep turning that way, the stick makes it tighter or wider; release = boost
-    if (inp.drift && !k.drift && !k.air && Math.abs(inp.steer) > 0.3 && k.speed > 12) {
-      k.drift = Math.sign(inp.steer);
-      k.driftT = 0;
+    if (inp.drift && !k.drift && !k.air && !driftWait && k.speed > 10) {
       k.vy = 3.2; // a little hop
       k.air = true;
+      if (Math.abs(inp.steer) > 0.15) {
+        k.drift = Math.sign(inp.steer);
+        k.driftT = 0;
+      } else driftWait = 0.35;
+    }
+    if (driftWait > 0) {
+      driftWait -= dt;
+      if (!inp.drift) driftWait = 0;
+      else if (Math.abs(inp.steer) > 0.15) {
+        k.drift = Math.sign(inp.steer);
+        k.driftT = 0;
+        driftWait = 0;
+      }
     }
     if (k.drift && (!inp.drift || k.speed < 8)) {
       const tier = k.driftT >= TIER_AT[1] ? 2 : k.driftT >= TIER_AT[0] ? 1 : 0;
@@ -496,10 +515,10 @@ export function startKartSpike(app: HTMLElement) {
       // sparks build only while actually turning into the drift on the road (no farming boosts on a straight)
       if (!onRoad) k.driftT = 0;
       else k.driftT += dt * (0.8 + 0.5 * Math.max(0, inp.steer * k.drift)); // widening the drift (stick out) still charges
-      turn = k.drift * (1.0 + 0.8 * (inp.steer * k.drift)) * 1.4;
+      turn = k.drift * (1.0 + 0.7 * (inp.steer * k.drift)) * 1.45;
     } else {
-      const heavy = 1 - 0.55 * Math.min(1, Math.abs(k.speed) / MAX_ROAD);
-      turn = inp.steer * 2.4 * heavy * sp * (k.speed < 0 ? -1 : 1);
+      const heavy = 1 - 0.4 * Math.min(1, Math.abs(k.speed) / MAX_ROAD);
+      turn = inp.steer * 2.5 * heavy * sp * (k.speed < 0 ? -1 : 1);
     }
     k.heading += turn * dt;
     const slip = k.drift ? -k.drift * 0.32 : 0;
@@ -625,7 +644,7 @@ export function startKartSpike(app: HTMLElement) {
       fpsT = 0;
     }
     const force = (window as unknown as { __kart: { force?: Input } }).__kart.force;
-    const inp = force ?? read();
+    const inp = force ?? read(dt);
     // countdown
     if (countdown > 0) {
       const left = 3 - (now - t0) / 1000;
