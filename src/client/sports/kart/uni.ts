@@ -8,6 +8,7 @@
 // and the sand beside the road can be cut across (slower, unless you are boosted or in a buggy).
 import * as THREE from "three";
 import { Track, type TrackDef } from "./track";
+import { blimp, confetti, lifeBlock, pearl, scienceBlock, whiteBlock } from "./campusArt";
 import { balloonArch, bannerTex, benches, birds, crowd, flags, fountain, greenery, lamps, noiseTex, sky, walkers, type Tick } from "./life";
 
 export const UNI: TrackDef = {
@@ -254,38 +255,27 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
   });
   scene.add(trunk, crown);
 
-  // ---------------------------------------------------------------- landmarks
-  // «اللؤلؤة»: the convocation hall, a white ribbed sphere on a podium at the end of the boulevard
-  const ribs = canvasTex(512, 256, (c) => {
-    c.fillStyle = "#f7f7f4";
-    c.fillRect(0, 0, 512, 256);
-    c.fillStyle = "#d6dadf";
-    for (let x = 0; x < 512; x += 16) c.fillRect(x, 0, 4, 256);
-    c.fillStyle = "#e4e7ea";
-    for (let y = 0; y < 256; y += 32) c.fillRect(0, y, 512, 2);
-  });
-  const pearl = new THREE.Mesh(new THREE.SphereGeometry(20, 40, 24), new THREE.MeshPhongMaterial({ map: ribs, shininess: 60, specular: 0x666666 }));
-  pearl.scale.set(1, 0.84, 1.1);
-  pearl.position.set(0, 15, 172);
-  scene.add(pearl);
-  const podium = new THREE.Mesh(new THREE.CylinderGeometry(24, 25, 2.4, 40), new THREE.MeshLambertMaterial({ color: 0xe8e2d4 }));
-  podium.position.set(0, 1.2, 172);
-  flat.add(podium);
-  scene.add(podium);
-
-  // the administration tower: a tall white block with a square grid facade
-  const grid = canvasTex(128, 256, (c) => {
-    c.fillStyle = "#f2f2ee";
-    c.fillRect(0, 0, 128, 256);
-    c.fillStyle = "#8fb4c9";
-    for (let y = 6; y < 256; y += 16) for (let x = 6; x < 128; x += 16) c.fillRect(x, y, 10, 10);
-  });
-  grid.wrapS = grid.wrapT = THREE.RepeatWrapping;
-  grid.repeat.set(2, 4);
-  const tower = new THREE.Mesh(new THREE.BoxGeometry(20, 62, 18), new THREE.MeshLambertMaterial({ map: grid }));
-  tower.position.set(-34, 31, 160);
-  scene.add(tower);
-
+  // ---------------------------------------------------------------- landmarks (as in photos of the campus)
+  // «اللؤلؤة»: the lattice sphere with its glowing core, and the long reflecting pool
+  const pr = pearl(scene, { x: 0, z: 172, r: 20, poolDir: Math.PI + 0.55, poolLen: 52 });
+  // the administration tower (deep square niches) and white screened blocks round the plaza
+  whiteBlock(scene, { x: -34, z: 160, rot: 0, w: 20, d: 18, h: 62, kind: "niches" });
+  for (const [x, z, w, d, h, rot] of [[-62, 196, 34, 24, 18, 0.2], [52, 238, 30, 26, 16, -0.3], [-58, 118, 30, 22, 14, 0.1]] as const) {
+    if (clear(x, z) > Math.max(w, d) / 2 + 4) whiteBlock(scene, { x, z, rot, w, d, h, kind: "screen" });
+  }
+  // flags all along the pool
+  {
+    const spots: { x: number; z: number; face: number; h?: number }[] = [];
+    for (let k = -2; k <= 2; k++)
+      for (const sd of [1, -1]) {
+        const ax = Math.sin(pr.pool.dir);
+        const az = Math.cos(pr.pool.dir);
+        const x = pr.pool.x + ax * k * 11 + az * sd * 7;
+        const z = pr.pool.z + az * k * 11 - ax * sd * 7;
+        if (clear(x, z) > 1) spots.push({ x, z, face: pr.pool.dir + Math.PI / 2, h: 9 });
+      }
+    ticks.push(flags(scene, spots));
+  }
   // the central library: a white cube wrapped in a diamond lattice
   const lattice = canvasTex(256, 256, (c) => {
     c.fillStyle = "#3c4148";
@@ -321,68 +311,32 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
   mosque.position.set(78, 0, 140);
   scene.add(mosque);
 
-  // the College of Science: angular glass blocks with diagonal frames either side of the Galleria, and the
-  // chemistry block with brown vertical fins
-  const glassTex = canvasTex(256, 256, (c) => {
-    const g = c.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0, "#9fd0dc");
-    g.addColorStop(1, "#5e8fa3");
-    c.fillStyle = g;
-    c.fillRect(0, 0, 256, 256);
-    c.strokeStyle = "rgba(255,255,255,0.85)";
-    c.lineWidth = 5;
-    for (let k = -256; k <= 512; k += 64) {
-      c.beginPath();
-      c.moveTo(k, 256);
-      c.lineTo(k + 128, 0);
-      c.stroke();
-    }
-    c.strokeStyle = "rgba(255,255,255,0.5)";
-    c.lineWidth = 2;
-    for (let y = 0; y < 256; y += 32) {
-      c.beginPath();
-      c.moveTo(0, y);
-      c.lineTo(256, y);
-      c.stroke();
-    }
-  });
-  glassTex.wrapS = glassTex.wrapT = THREE.RepeatWrapping;
-  glassTex.repeat.set(3, 2);
-  const glassMat = new THREE.MeshPhongMaterial({ map: glassTex, shininess: 90, specular: 0xffffff });
-  const fins = canvasTex(128, 128, (c) => {
-    c.fillStyle = "#6b3a22";
-    c.fillRect(0, 0, 128, 128);
-    for (let x = 0; x < 128; x += 10) {
-      c.fillStyle = x % 20 ? "#c46a35" : "#d9824a";
-      c.fillRect(x, 0, 6, 128);
-    }
-  });
-  fins.wrapS = fins.wrapT = THREE.RepeatWrapping;
-  fins.repeat.set(6, 3);
-  /** a block whose top leans out at the ends (the faceted, angled look) */
-  const angled = (w: number, h: number, d: number, lean: number) => {
-    const g = new THREE.BoxGeometry(w, h, d);
-    const pos = g.attributes.position as THREE.BufferAttribute;
-    for (let k = 0; k < pos.count; k++) if (pos.getY(k) > 0) pos.setZ(k, pos.getZ(k) * (1 + lean));
-    g.computeVertexNormals();
-    return g;
-  };
+  // the College of Science either side of its galleria (white perforated screens over lit glass), and the
+  // College of Life Sciences at the galleria's far end (the golden lattice leaning out on white V columns)
   const gal = track.paths[1];
-  const college: [number, number, number, number, number, THREE.Material][] = [];
-  for (const f of [0.22, 0.5, 0.78]) {
-    const i = Math.round(f * (gal.n - 1));
-    const n = gal.normal(i);
+  const college: [number, number][] = [];
+  {
+    const mid = Math.round(0.42 * (gal.n - 1));
+    const hd = gal.heading(mid);
+    const n = gal.normal(mid);
     for (const sd of [1, -1]) {
-      const off = gal.width + 16;
-      college.push([gal.P[i].x + n.x * sd * off, gal.P[i].z + n.z * sd * off, gal.heading(i), 26, f === 0.5 && sd < 0 ? -1 : 1, f === 0.5 && sd < 0 ? new THREE.MeshLambertMaterial({ map: fins }) : glassMat]);
+      const off = gal.width + 15;
+      const x = gal.P[mid].x + n.x * sd * off;
+      const z = gal.P[mid].z + n.z * sd * off;
+      college.push([x, z]);
+      scienceBlock(scene, { x, z, rot: hd - Math.PI / 2, len: 92, depth: 24, h: 21 });
     }
-  }
-  for (const [x, z, hd, h, , mat] of college) {
-    if (clear(x, z) < 9) continue;
-    const b = new THREE.Mesh(angled(18, h, 34, 0.18), mat);
-    b.position.set(x, h / 2, z);
-    b.rotation.y = hd;
-    scene.add(b);
+    const end = Math.round(0.86 * (gal.n - 1));
+    const he = gal.heading(end);
+    const ne = gal.normal(end);
+    for (const sd of [1, -1]) {
+      const off = gal.width + 17;
+      const x = gal.P[end].x + ne.x * sd * off;
+      const z = gal.P[end].z + ne.z * sd * off;
+      if (clear(x, z) < 12) continue;
+      // (the front, with the lean, faces the galleria)
+      lifeBlock(scene, { x, z, rot: he - Math.PI / 2 + (sd > 0 ? Math.PI : 0), len: 40, depth: 22, h: 24, lean: 4 });
+    }
   }
   // the Galleria's roof: white portal frames and a long translucent roof over the shortcut
   const frameMat = new THREE.MeshLambertMaterial({ color: 0xf4f4f0 });
@@ -443,7 +397,7 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
     const t = board(sign("كلية العلوم", 7, 2.4, "#8c8f93", "#ffffff", 46), 6.6, 2.3, x - Math.sin(gal.heading(i)) * 0.62, 1.3, z - Math.cos(gal.heading(i)) * 0.62, gal.heading(i));
     void t;
   }
-  board(sign("نادي العلوم الحيوية", 20, 3, "#1b6b4a", "#ffffff", 64), 20, 3, college[0][0], 22, college[0][1], gal.heading(Math.round(0.22 * (gal.n - 1))));
+  board(sign("نادي العلوم الحيوية", 20, 3, "#1b6b4a", "#ffffff", 64), 20, 3, college[0][0], 25, college[0][1], gal.heading(Math.round(0.42 * (gal.n - 1))));
 
   // the start gate: a beige arch with «جامعة الكويت ترحب بكم»
   const gate = new THREE.Group();
@@ -467,7 +421,7 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
   // a pedestrian bridge over the boulevard
   {
     const i = Math.round((60 / track.LEN) * main.n);
-    const br = new THREE.Mesh(new THREE.BoxGeometry(main.width * 2 + 16, 2.6, 4), glassMat);
+    const br = new THREE.Mesh(new THREE.BoxGeometry(main.width * 2 + 16, 2.6, 4), new THREE.MeshPhongMaterial({ color: 0xbfe2ee, shininess: 100, specular: 0xffffff }));
     br.position.set(main.P[i].x, 8, main.P[i].z);
     br.rotation.y = main.heading(i); // (its long side across the road)
     scene.add(br);
@@ -614,6 +568,8 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
   };
   along(main, -60, 60, 5, [4, 5.5]);
   along(main, Math.round((150 / track.LEN) * main.n), Math.round((230 / track.LEN) * main.n), 9, [4]);
+  // fans along the whole lap, in clumps, so there is always someone cheering
+  for (let f = 0.1; f < 0.95; f += 0.12) along(main, Math.round(f * main.n), Math.round(f * main.n) + 40, 6, [4.5]);
   along(gal, 0, 40, 6, [3.5]);
   ticks.push(crowd(scene, crowdSpots));
   // ducks walking the paths between the lawns and round the plaza
@@ -632,6 +588,13 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
   }
   ticks.push(walkers(scene, routes));
   ticks.push(birds(scene, new THREE.Vector3(-40, 0, 110), 12));
+  // more balloon arches round the lap (a race day!)
+  for (const f of [0.33, 0.66]) {
+    const i = Math.round(f * main.n);
+    balloonArch(scene, main.P[i], main.heading(i), main.width);
+  }
+  ticks.push(confetti(scene, main.P[main.wrap(6)], 26));
+  ticks.push(blimp(scene, new THREE.Vector3(-30, 0, 120)));
 
   // shadows: everything standing casts; the ground and roads receive
   scene.traverse((o) => {

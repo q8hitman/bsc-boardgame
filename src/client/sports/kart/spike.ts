@@ -23,8 +23,8 @@ const ACCEL = 16;
 const BOOST = [0, 0.7, 1.3]; // seconds of boost per spark tier
 const TIER_AT = [0.32, 0.85]; // drift charge (seconds of turning into it) for blue / orange sparks
 
-// (spike: the campus on the real map by default; ?t=neon the neon city; ?t=uni the first campus sketch)
-const PICK = new URLSearchParams(location.search).get("t") ?? "campus";
+// (spike: the campus by default; ?t=neon the neon city; ?t=campus the campus on the bare OpenStreetMap footprints)
+const PICK = new URLSearchParams(location.search).get("t") ?? "uni";
 const NEON_PICKED = PICK === "neon";
 const track = new Track(NEON_PICKED ? NEON : PICK === "uni" ? UNI : CAMPUS);
 const main = track.paths[0];
@@ -282,6 +282,11 @@ export function startKartSpike(app: HTMLElement) {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = !NEON_PICKED;
+  // a little punchier colour (filmic, a touch brighter) for a sunny race day
+  if (!NEON_PICKED) {
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+  }
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, 1, 0.3, 400);
