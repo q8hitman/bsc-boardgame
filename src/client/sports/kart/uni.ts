@@ -8,6 +8,7 @@
 // and the sand beside the road can be cut across (slower, unless you are boosted or in a buggy).
 import * as THREE from "three";
 import { Track, type TrackDef } from "./track";
+import { pushOut, solid, type Solid } from "./campus";
 import { blimp, confetti, lifeBlock, pearl, scienceBlock, whiteBlock } from "./campusArt";
 import { balloonArch, bannerTex, benches, birds, crowd, flags, fountain, greenery, lamps, noiseTex, sky, walkers, type Tick } from "./life";
 
@@ -43,7 +44,7 @@ function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => 
 }
 
 /** the campus: builds everything, returns what moves each frame and the sun (which follows your kart for shadows) */
-export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: THREE.DirectionalLight } {
+export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: THREE.DirectionalLight; solids: Solid[] } {
   scene.background = new THREE.Color(0xbfe3f5);
   scene.fog = new THREE.Fog(0xe6dcc4, 180, 520);
   scene.add(new THREE.HemisphereLight(0xdff2ff, 0xc9a86a, 1.2));
@@ -69,6 +70,41 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
     const p = track.paths[n.path];
     return Math.hypot(p.P[n.i].x - x, p.P[n.i].z - z) - p.width;
   };
+  /** footprints already built on: karts bump off them, and nothing else is built over them */
+  const solids: Solid[] = [];
+  type XZ = [number, number];
+  const rectPts = (x: number, z: number, rot: number, w: number, d: number): XZ[] => {
+    const c = Math.cos(rot);
+    const sn = Math.sin(rot);
+    return ([[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]] as XZ[]).map(([a, b]) => [x + a * c + b * sn, z - a * sn + b * c] as XZ);
+  };
+  /** does a w x d footprint here stay `margin` clear of every road and every building so far? */
+  const fits = (x: number, z: number, rot: number, w: number, d: number, margin = 3) => {
+    const c = Math.cos(rot);
+    const sn = Math.sin(rot);
+    const sa = Math.max(1.5, w / 14);
+    const sb = Math.max(1.5, d / 14);
+    for (let a = -w / 2; a <= w / 2 + 0.01; a += sa)
+      for (let b = -d / 2; b <= d / 2 + 0.01; b += sb) {
+        const px = x + a * c + b * sn;
+        const pz = z - a * sn + b * c;
+        if (clear(px, pz) < margin) return false;
+        if (solids.length && pushOut(solids, { x: px, z: pz }, 1.5)) return false;
+      }
+    return true;
+  };
+  const take = (x: number, z: number, rot: number, w: number, d: number) => solids.push(solid(rectPts(x, z, rot, w, d)));
+  /** build only if it fits (shrinking the long side a few times first); returns the size used, or null */
+  const site = (x: number, z: number, rot: number, w: number, d: number, margin = 3): { w: number; d: number } | null => {
+    for (const f of [1, 0.85, 0.7, 0.55]) {
+      if (fits(x, z, rot, w * f, d, margin)) {
+        take(x, z, rot, w * f, d);
+        return { w: w * f, d };
+      }
+    }
+    return null;
+  };
+
 
   // ---------------------------------------------------------------- the ground: sand, lawns, paving round the plaza
   const sandTex = noiseTex("#dcc28f", ["#c9ab74", "#e8d3a6", "#bf9f66", "#f0dfba"], 256, [120, 120], (c) => {
@@ -258,10 +294,19 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
   // ---------------------------------------------------------------- landmarks (as in photos of the campus)
   // «اللؤلؤة»: the lattice sphere with its glowing core, and the long reflecting pool
   const pr = pearl(scene, { x: 0, z: 172, r: 20, poolDir: Math.PI + 0.55, poolLen: 52 });
+  // (its round podium: a 16-sided footprint)
+  solids.push(solid(Array.from({ length: 16 }, (_, k) => [Math.cos((k / 16) * Math.PI * 2) * 23, 172 + Math.sin((k / 16) * Math.PI * 2) * 23] as XZ)));
+  take(pr.pool.x, pr.pool.z, pr.pool.dir, 9, pr.pool.len);
   // the administration tower (deep square niches) and white screened blocks round the plaza
-  whiteBlock(scene, { x: -34, z: 160, rot: 0, w: 20, d: 18, h: 62, kind: "niches" });
-  for (const [x, z, w, d, h, rot] of [[-62, 196, 34, 24, 18, 0.2], [52, 238, 30, 26, 16, -0.3], [-58, 118, 30, 22, 14, 0.1]] as const) {
-    if (clear(x, z) > Math.max(w, d) / 2 + 4) whiteBlock(scene, { x, z, rot, w, d, h, kind: "screen" });
+  for (const [x, z] of [[-34, 160], [-44, 150], [-30, 140]] as const) {
+    if (site(x, z, 0, 20, 18)) {
+      whiteBlock(scene, { x, z, rot: 0, w: 20, d: 18, h: 62, kind: "niches" });
+      break;
+    }
+  }
+  for (const [x, z, w, d, h, rot] of [[-62, 196, 34, 24, 18, 0.2], [52, 238, 30, 26, 16, -0.3], [-58, 118, 30, 22, 14, 0.1], [60, 90, 28, 22, 15, 0], [-80, 60, 30, 24, 16, 0.3]] as const) {
+    const f = site(x, z, rot, w, d);
+    if (f) whiteBlock(scene, { x, z, rot, w: f.w, d: f.d, h, kind: "screen" });
   }
   // flags all along the pool
   {
@@ -295,9 +340,13 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
   });
   lattice.wrapS = lattice.wrapT = THREE.RepeatWrapping;
   lattice.repeat.set(2, 2);
-  const library = new THREE.Mesh(new THREE.BoxGeometry(36, 38, 36), new THREE.MeshLambertMaterial({ map: lattice }));
-  library.position.set(-66, 19, 262);
-  scene.add(library);
+  for (const [x, z] of [[-66, 262], [-80, 275], [-50, 285]] as const) {
+    if (!site(x, z, 0, 36, 36)) continue;
+    const library = new THREE.Mesh(new THREE.BoxGeometry(36, 38, 36), new THREE.MeshLambertMaterial({ map: lattice }));
+    library.position.set(x, 19, z);
+    scene.add(library);
+    break;
+  }
 
   // the mosque: a dome in a lattice screen on a square base, and a slim minaret
   const mosque = new THREE.Group();
@@ -308,8 +357,12 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
   const minaret = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.8, 34, 10), new THREE.MeshLambertMaterial({ color: 0xf1ebdc }));
   minaret.position.set(17, 17, 17);
   mosque.add(base, dome, minaret);
-  mosque.position.set(78, 0, 140);
-  scene.add(mosque);
+  for (const [x, z] of [[78, 140], [92, 150], [95, 120]] as const) {
+    if (!site(x, z, 0, 34, 34)) continue;
+    mosque.position.set(x, 0, z);
+    scene.add(mosque);
+    break;
+  }
 
   // the College of Science either side of its galleria (white perforated screens over lit glass), and the
   // College of Life Sciences at the galleria's far end (the golden lattice leaning out on white V columns)
@@ -324,7 +377,8 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
       const x = gal.P[mid].x + n.x * sd * off;
       const z = gal.P[mid].z + n.z * sd * off;
       college.push([x, z]);
-      scienceBlock(scene, { x, z, rot: hd - Math.PI / 2, len: 92, depth: 24, h: 21 });
+      const f = site(x, z, hd - Math.PI / 2, 92, 24, 2.5);
+      if (f) scienceBlock(scene, { x, z, rot: hd - Math.PI / 2, len: f.w, depth: 24, h: 21 });
     }
     const end = Math.round(0.86 * (gal.n - 1));
     const he = gal.heading(end);
@@ -333,9 +387,10 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
       const off = gal.width + 17;
       const x = gal.P[end].x + ne.x * sd * off;
       const z = gal.P[end].z + ne.z * sd * off;
-      if (clear(x, z) < 12) continue;
       // (the front, with the lean, faces the galleria)
-      lifeBlock(scene, { x, z, rot: he - Math.PI / 2 + (sd > 0 ? Math.PI : 0), len: 40, depth: 22, h: 24, lean: 4 });
+      const rot = he - Math.PI / 2 + (sd > 0 ? Math.PI : 0);
+      const f = site(x, z, rot, 40, 26, 2.5);
+      if (f) lifeBlock(scene, { x, z, rot, len: f.w, depth: 22, h: 24, lean: 4 });
     }
   }
   // the Galleria's roof: white portal frames and a long translucent roof over the shortcut
@@ -475,9 +530,13 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
   while (blocks.length < 40 && tries++ < 2000) {
     const x = rnd() * 520 - 330;
     const z = rnd() * 520 - 170;
-    if (clear(x, z) < 22) continue;
-    if (Math.hypot(x, z - 172) < 50 || Math.hypot(x + 66, z - 262) < 40 || Math.hypot(x - 78, z - 140) < 35 || Math.hypot(x + 34, z - 160) < 25) continue;
-    blocks.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 7, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.round(rnd() * 3) * (Math.PI / 2)), new THREE.Vector3(1 + rnd() * 1.5, 0.6 + rnd() * 1.2, 1 + rnd())));
+    const sx = 1 + rnd() * 1.5;
+    const sy = 0.6 + rnd() * 1.2;
+    const sz = 1 + rnd();
+    const rot = Math.round(rnd() * 3) * (Math.PI / 2);
+    if (!fits(x, z, rot, 24 * sx, 18 * sz, 6)) continue;
+    take(x, z, rot, 24 * sx, 18 * sz);
+    blocks.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 7 * sy, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot), new THREE.Vector3(sx, sy, sz)));
   }
   const blockTex = canvasTex(128, 128, (c) => {
     c.fillStyle = "#e3d3b2";
@@ -596,6 +655,109 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
   ticks.push(confetti(scene, main.P[main.wrap(6)], 26));
   ticks.push(blimp(scene, new THREE.Vector3(-30, 0, 120)));
 
+  // ---------------------------------------------------------------- more life: kiosks, shaded seating, desert
+  // planting, palm groves, students walking everywhere
+  {
+    // food and coffee kiosks with striped awnings (and their own little queues)
+    const stripes = (a: string, b: string) =>
+      canvasTex(64, 64, (c) => {
+        for (let x = 0; x < 64; x += 16) {
+          c.fillStyle = (x / 16) % 2 ? a : b;
+          c.fillRect(x, 0, 16, 64);
+        }
+      });
+    const awnings = [stripes("#ff3d6e", "#ffffff"), stripes("#2f8cff", "#ffffff"), stripes("#ffb21e", "#ffffff"), stripes("#36c26b", "#ffffff")];
+    const kioskSpots: THREE.Vector3[] = [];
+    let n = 0;
+    for (let i = 30; i < main.n && n < 10; i += 90) {
+      const nn = main.normal(i);
+      const sd = n % 2 ? 1 : -1;
+      const x = main.P[i].x + nn.x * sd * (main.width + 9);
+      const z = main.P[i].z + nn.z * sd * (main.width + 9);
+      const rot = main.heading(i) + (sd > 0 ? -Math.PI / 2 : Math.PI / 2);
+      if (!site(x, z, rot, 6, 4, 2)) continue;
+      const k = new THREE.Group();
+      const box = new THREE.Mesh(new THREE.BoxGeometry(6, 3, 4), new THREE.MeshLambertMaterial({ color: [0xfff3d6, 0xe6f4ff, 0xfff0f0, 0xeaffea][n % 4] }));
+      box.position.y = 1.5;
+      const aw = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.3, 2.4), new THREE.MeshLambertMaterial({ map: awnings[n % 4] }));
+      aw.position.set(0, 3.2, 2.6);
+      aw.rotation.x = 0.25;
+      const roofSign = new THREE.Mesh(new THREE.BoxGeometry(4, 1.2, 0.3), new THREE.MeshLambertMaterial({ color: [0xff3d6e, 0x2f8cff, 0xffb21e, 0x36c26b][n % 4] }));
+      roofSign.position.set(0, 3.9, 1.9);
+      k.add(box, aw, roofSign);
+      k.position.set(x, 0, z);
+      k.rotation.y = rot;
+      scene.add(k);
+      // a short queue in front
+      for (let q = 0; q < 3; q++) kioskSpots.push(new THREE.Vector3(x + Math.sin(rot) * (4 + q * 1.4), 0, z + Math.cos(rot) * (4 + q * 1.4)));
+      n++;
+    }
+    ticks.push(crowd(scene, kioskSpots));
+    // shaded seating: parasols and tables on the paved plaza
+    const cols = [0xff3d6e, 0x2f8cff, 0xffd23f, 0x36c26b, 0xff8a1e];
+    const para: THREE.Matrix4[] = [];
+    const paraCol: THREE.Color[] = [];
+    const poles: THREE.Matrix4[] = [];
+    for (let t = 0; t < 400 && para.length < 26; t++) {
+      const x = -80 + rnd() * 160;
+      const z = 90 + rnd() * 170;
+      if (!fits(x, z, 0, 4, 4, 2.5)) continue;
+      take(x, z, 0, 3, 3);
+      para.push(new THREE.Matrix4().makeTranslation(x, 2.8, z));
+      paraCol.push(new THREE.Color(cols[para.length % cols.length]));
+      poles.push(new THREE.Matrix4().makeTranslation(x, 1.4, z));
+    }
+    const paraMesh = new THREE.InstancedMesh(new THREE.ConeGeometry(2, 0.9, 10), new THREE.MeshLambertMaterial({ color: 0xffffff }), para.length);
+    para.forEach((m, k) => {
+      paraMesh.setMatrixAt(k, m);
+      paraMesh.setColorAt(k, paraCol[k]);
+    });
+    const poleMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07, 0.07, 2.8, 5), new THREE.MeshLambertMaterial({ color: 0xffffff }), poles.length);
+    poles.forEach((m, k) => poleMesh.setMatrixAt(k, m));
+    const tableMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.8, 0.8, 0.08, 12), new THREE.MeshLambertMaterial({ color: 0xffffff }), poles.length);
+    poles.forEach((m, k) => tableMesh.setMatrixAt(k, new THREE.Matrix4().makeTranslation(new THREE.Vector3().setFromMatrixPosition(m).x, 0.8, new THREE.Vector3().setFromMatrixPosition(m).z)));
+    scene.add(paraMesh, poleMesh, tableMesh);
+    // desert planting in the open sand: low shrubs and palm groves
+    const shrubs: THREE.Vector3[] = [];
+    for (let t = 0; t < 3000 && shrubs.length < 220; t++) {
+      const x = -330 + rnd() * 560;
+      const z = -180 + rnd() * 560;
+      if (clear(x, z) < 4 || pushOut(solids, { x, z }, 2)) continue;
+      shrubs.push(new THREE.Vector3(x, 0, z));
+    }
+    greenery(scene, shrubs, shrubs.filter((_, k) => k % 9 === 0));
+    // palm groves: a few palms together
+    const grove: THREE.Vector3[] = [];
+    for (let t = 0; t < 600 && grove.length < 70; t++) {
+      const x = -300 + rnd() * 520;
+      const z = -160 + rnd() * 520;
+      if (clear(x, z) < 10 || pushOut(solids, { x, z }, 4)) continue;
+      for (let k = 0; k < 4; k++) grove.push(new THREE.Vector3(x + (rnd() - 0.5) * 9, 0, z + (rnd() - 0.5) * 9));
+    }
+    const gTrunk = new THREE.InstancedMesh(trunk.geometry, trunk.material as THREE.Material, grove.length);
+    const gCrown = new THREE.InstancedMesh(crown.geometry, crown.material as THREE.Material, grove.length);
+    grove.forEach((q, k) => {
+      const h = 0.8 + rnd() * 0.5;
+      gTrunk.setMatrixAt(k, new THREE.Matrix4().compose(new THREE.Vector3(q.x, 4 * h, q.z), new THREE.Quaternion(), new THREE.Vector3(1, h, 1)));
+      gCrown.setMatrixAt(k, new THREE.Matrix4().compose(new THREE.Vector3(q.x, 8 * h, q.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6), new THREE.Vector3(1, 1, 1)));
+    });
+    scene.add(gTrunk, gCrown);
+    // students walking all over the plaza and the paths
+    const more: [THREE.Vector3, THREE.Vector3][] = [];
+    for (let t = 0; t < 1500 && more.length < 30; t++) {
+      const x = -120 + rnd() * 240;
+      const z = -40 + rnd() * 320;
+      const ang = rnd() * Math.PI * 2;
+      const L = 10 + rnd() * 16;
+      const bx = x + Math.cos(ang) * L;
+      const bz = z + Math.sin(ang) * L;
+      if (clear(x, z) < 3 || clear(bx, bz) < 3 || clear((x + bx) / 2, (z + bz) / 2) < 3) continue;
+      if (pushOut(solids, { x, z }, 1) || pushOut(solids, { x: bx, z: bz }, 1) || pushOut(solids, { x: (x + bx) / 2, z: (z + bz) / 2 }, 1)) continue;
+      more.push([new THREE.Vector3(x, 0.05, z), new THREE.Vector3(bx, 0.05, bz)]);
+    }
+    ticks.push(walkers(scene, more));
+  }
+
   // shadows: everything standing casts; the ground and roads receive
   scene.traverse((o) => {
     const m = o as THREE.Mesh;
@@ -609,5 +771,5 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
     m.castShadow = true;
     m.receiveShadow = true;
   });
-  return { tick: (dt, t, cam) => ticks.forEach((f) => f(dt, t, cam)), sun };
+  return { tick: (dt, t, cam) => ticks.forEach((f) => f(dt, t, cam)), sun, solids };
 }

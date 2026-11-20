@@ -20,8 +20,10 @@ const gripOf = (st: KartStats) => 0.78 + st.handling * 0.09; // 0.87 .. 1.23 x t
 const roughOf = (st: KartStats) => 8 + st.offroad * 1.8; // 9.8 .. 17 m/s off the road
 const sparkOf = (st: KartStats) => 0.8 + st.drift * 0.1; // drift charge rate
 const ACCEL = 16;
-const BOOST = [0, 0.7, 1.3]; // seconds of boost per spark tier
-const TIER_AT = [0.32, 0.85]; // drift charge (seconds of turning into it) for blue / orange sparks
+const BOOST = [0, 0.7, 1.3, 1.9]; // seconds of boost per spark tier
+const TIER_AT = [0.32, 0.85, 1.5]; // drift charge (seconds of turning into it) for blue / orange / purple sparks
+const SPARK = [0xfff3b0, 0x3fb8ff, 0xff9a2a, 0xd65cff]; // the sparks' colour at each tier (0 = just starting)
+const tierOf = (t: number) => (t >= TIER_AT[2] ? 3 : t >= TIER_AT[1] ? 2 : t >= TIER_AT[0] ? 1 : 0);
 
 // (spike: the campus by default; ?t=neon the neon city; ?t=campus the campus on the bare OpenStreetMap footprints)
 const PICK = new URLSearchParams(location.search).get("t") ?? "uni";
@@ -128,13 +130,16 @@ function makeKart(scene: THREE.Scene, color: number, char: string, me: boolean):
   scene.add(g);
   const k: Kart = { g, body, x: 0, y: 0, z: 0, vy: 0, heading: 0, speed: 0, i: 0, path: 0, safe: { path: 0, i: 0 }, progress: 0, lap: 0, me, drift: 0, driftT: 0, boostT: 0, air: false, lane: 0, pace: 1, blob, fallT: 0, sprite, look, stats: statsFor(look), kartGroup: km.group };
   if (me) {
-    k.sparks = [-0.95, 0.95].map((x) => {
-      const s = new THREE.Mesh(new THREE.SphereGeometry(0.28, 6, 6), new THREE.MeshBasicMaterial({ color: 0x55c8ff }));
-      s.position.set(x * 1.02, 0.25, -1.45);
-      s.visible = false;
-      body.add(s);
-      return s;
-    });
+    const sparkMat = new THREE.MeshBasicMaterial({ color: SPARK[1] });
+    k.sparks = [];
+    for (const x of [-1.05, 1.05])
+      for (let j = 0; j < 7; j++) {
+        const s = new THREE.Mesh(new THREE.TetrahedronGeometry(j === 0 ? 0.32 : 0.16), sparkMat);
+        s.userData = { x, j };
+        s.visible = false;
+        body.add(s);
+        k.sparks.push(s);
+      }
   }
   return k;
 }
@@ -178,6 +183,8 @@ function placeOnGrid(k: Kart, slot: number) {
 
 // ---------------------------------------------------------------- input
 interface Input {
+  /** the gas pedal (holding drift counts as gas too, so one thumb can do both) */
+  gas: boolean;
   steer: number;
   brake: boolean;
   drift: boolean;
@@ -194,7 +201,7 @@ function controls(root: HTMLElement): (dt: number) => Input {
   const ui = document.createElement("div");
   ui.className = "kt-ctrl";
   ui.innerHTML = `<div class="kt-stick"><div class="kt-hint">حط صبعك واسحب يمين ويسار</div><i class="kt-knob"></i></div>
-    <div class="kt-btns"><button class="kt-drift" type="button">درفت</button><button class="kt-item" type="button">غرض</button></div>`;
+    <div class="kt-btns"><button class="kt-drift" type="button">درفت</button><div class="kt-row"><button class="kt-brake" type="button">بريك</button><button class="kt-gas" type="button">بنزين</button></div></div>`;
   root.appendChild(ui);
   const zone = ui.querySelector<HTMLDivElement>(".kt-stick")!;
   const knob = ui.querySelector<HTMLElement>(".kt-knob")!;
@@ -250,7 +257,8 @@ function controls(root: HTMLElement): (dt: number) => Input {
     return () => on;
   };
   const driftBtn = hold(".kt-drift");
-  const itemBtn = hold(".kt-item");
+  const gasBtn = hold(".kt-gas");
+  const brakeBtn = hold(".kt-brake");
   let smooth = 0;
   return (dt: number) => {
     const kl = keys.has("ArrowLeft") || keys.has("KeyA");
@@ -262,9 +270,10 @@ function controls(root: HTMLElement): (dt: number) => Input {
     return {
       // (Input.steer is in heading terms: + turns toward +x, the kart's LEFT; so the player's right is negative)
       steer: -smooth,
-      brake: keys.has("ArrowDown") || keys.has("KeyS") || touchBrake,
+      brake: keys.has("ArrowDown") || keys.has("KeyS") || touchBrake || brakeBtn(),
       drift: keys.has("Space") || keys.has("ShiftLeft") || keys.has("ShiftRight") || driftBtn(),
-      item: keys.has("KeyE") || itemBtn(),
+      item: keys.has("KeyE"),
+      gas: keys.has("ArrowUp") || keys.has("KeyW") || gasBtn(),
     };
   };
 }
@@ -305,7 +314,11 @@ export function startKartSpike(app: HTMLElement) {
   /** buildings and pillars karts bump off */
   let solids: Solid[] = [];
   if (NEON_PICKED) buildNeon(scene, track);
-  else if (PICK === "uni") life = buildUni(scene, track);
+  else if (PICK === "uni") {
+    const u = buildUni(scene, track);
+    life = u;
+    solids = u.solids;
+  }
   else {
     const c = buildCampus(scene, track);
     life = c;
@@ -358,7 +371,7 @@ export function startKartSpike(app: HTMLElement) {
   drawCar();
   // (debug handle for testing the feel from the console)
   (window as unknown as { __kart: unknown }).__kart = {
-    me, karts, LEN, track, camera, force: undefined as Input | undefined,
+    me, karts, LEN, track, camera, solids: () => solids, force: undefined as Input | undefined,
     // (testing: the point n samples ahead of a kart on its road, carrying on along the main road after a shortcut)
     ahead: (k: Kart, n: number) => aheadOf(k, n),
   };
@@ -389,10 +402,11 @@ export function startKartSpike(app: HTMLElement) {
       k.boostT -= dt;
       top = topOf(st) + 10;
     }
-    // throttle is automatic (non-gamers just steer); down brakes / reverses
-    const target = inp.brake ? -8 : top;
+    // gas to go; let go and it rolls to a stop; the brake slows hard (and backs up once stopped)
+    const going = inp.gas || inp.drift || k.boostT > 0;
+    const target = inp.brake ? -8 : going ? top : 0;
     const acc = accelOf(st);
-    const a = k.speed < target ? (k.boostT > 0 ? acc * 2.2 : acc) : -ACCEL * (inp.brake ? 1.6 : 0.9);
+    const a = k.speed < target ? (k.boostT > 0 ? acc * 2.2 : acc) : inp.brake ? -ACCEL * 1.8 : going ? -ACCEL * 0.9 : -7;
     k.speed += Math.sign(target - k.speed) * Math.min(Math.abs(target - k.speed), Math.abs(a) * dt);
     // drift: press while turning; you keep turning that way, the stick makes it tighter or wider; release = boost
     if (inp.drift && !k.drift && !k.air && !driftWait && k.speed > 10) {
@@ -413,7 +427,7 @@ export function startKartSpike(app: HTMLElement) {
       }
     }
     if (k.drift && (!inp.drift || k.speed < 8)) {
-      const tier = k.driftT >= TIER_AT[1] ? 2 : k.driftT >= TIER_AT[0] ? 1 : 0;
+      const tier = tierOf(k.driftT);
       if (tier && k.speed >= 8) {
         k.boostT = BOOST[tier];
         flashBoost(tier);
@@ -436,10 +450,18 @@ export function startKartSpike(app: HTMLElement) {
     k.x += Math.sin(k.heading - slip * 0.35) * k.speed * dt;
     k.z += Math.cos(k.heading - slip * 0.35) * k.speed * dt;
     // sparks
-    const tier = !k.drift ? -1 : k.driftT >= TIER_AT[1] ? 2 : k.driftT >= TIER_AT[0] ? 1 : 0;
-    k.sparks!.forEach((s) => {
-      s.visible = tier >= 1 && Math.floor(performance.now() / 60) % 2 === 0;
-      (s.material as THREE.MeshBasicMaterial).color.setHex(tier === 2 ? 0xff9a2a : 0x55c8ff);
+    // the sparks at the back wheels change colour as the drift charges (white-yellow, blue, orange, purple)
+    const tier = !k.drift ? -1 : tierOf(k.driftT);
+    const now = performance.now();
+    k.sparks!.forEach((s, n) => {
+      s.visible = tier >= 0 && (n % 7 === 0 || Math.random() < 0.6);
+      if (!s.visible) return;
+      if (n === 0) (s.material as THREE.MeshBasicMaterial).color.setHex(SPARK[tier]);
+      const { x, j } = s.userData as { x: number; j: number };
+      const sc = tier === 0 ? 0.6 : 1 + tier * 0.25;
+      s.scale.setScalar(sc);
+      s.position.set(x + (Math.random() - 0.5) * 0.4, 0.15 + Math.random() * (0.25 + j * 0.06), -1.3 - j * 0.12 - Math.random() * 0.3);
+      s.rotation.set(now * 0.01 + j, now * 0.013, 0);
     });
     k.body.rotation.y = slip;
   }
@@ -614,7 +636,7 @@ export function startKartSpike(app: HTMLElement) {
   let shake = 0;
   const boostEl = $("ktBoost");
   function flashBoost(tier: number) {
-    boostEl.textContent = tier === 2 ? "تيربو!!" : "تيربو!";
+    boostEl.textContent = tier === 3 ? "تيربو!!!" : tier === 2 ? "تيربو!!" : "تيربو!";
     boostEl.className = `kt-boost on t${tier}`;
     setTimeout(() => (boostEl.className = "kt-boost"), 700);
   }

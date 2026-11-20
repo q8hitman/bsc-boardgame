@@ -47,7 +47,7 @@ export interface Solid {
   minz: number;
   maxz: number;
 }
-const solid = (pts: XZ[]): Solid => ({
+export const solid = (pts: XZ[]): Solid => ({
   pts,
   minx: Math.min(...pts.map((p) => p[0])),
   maxx: Math.max(...pts.map((p) => p[0])),
