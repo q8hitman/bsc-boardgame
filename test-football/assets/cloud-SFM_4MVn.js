@@ -1,4 +1,4 @@
-var Dp=Object.defineProperty;var Ip=(r,e,t)=>e in r?Dp(r,e,{enumerable:!0,configurable:!0,writable:!0,value:t}):r[e]=t;var G=(r,e,t)=>Ip(r,typeof e!="symbol"?e+"":e,t);import{ag as yp,ad as wa,N as wr,ah as Oc,G as Nc,ai as Fh,aj as wp,ak as Tp,al as Ta,d as Lh,am as Ap,an as Rp}from"./index-BiwBnY1y.js";import{setAuthArea as vp,refreshAccount as Vh,setSaver as Pp,NAME_MAX as kh}from"./sheet-DAMHTfY8.js";const Sp=()=>{};var Fc={};/**
+var Dp=Object.defineProperty;var Ip=(r,e,t)=>e in r?Dp(r,e,{enumerable:!0,configurable:!0,writable:!0,value:t}):r[e]=t;var G=(r,e,t)=>Ip(r,typeof e!="symbol"?e+"":e,t);import{ag as yp,ad as wa,N as wr,ah as Oc,G as Nc,ai as Fh,aj as wp,ak as Tp,al as Ta,d as Lh,am as Ap,an as Rp}from"./index-DgQx4spj.js";import{setAuthArea as vp,refreshAccount as Vh,setSaver as Pp,NAME_MAX as kh}from"./sheet-BcSKAaKi.js";const Sp=()=>{};var Fc={};/**
  * @license
  * Copyright 2017 Google LLC
  *
