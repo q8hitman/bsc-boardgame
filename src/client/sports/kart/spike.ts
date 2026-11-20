@@ -402,7 +402,8 @@ function controls(root: HTMLElement): (dt: number) => Input {
     const rate = Math.abs(want) < Math.abs(smooth) || want * smooth < 0 ? 10 : 6;
     smooth += Math.sign(want - smooth) * Math.min(Math.abs(want - smooth), rate * dt);
     return {
-      steer: smooth,
+      // (Input.steer is in heading terms: + turns toward +x, the kart's LEFT; so the player's right is negative)
+      steer: -smooth,
       brake: keys.has("ArrowDown") || keys.has("KeyS") || touchBrake,
       drift: keys.has("Space") || keys.has("ShiftLeft") || keys.has("ShiftRight") || driftBtn(),
       item: keys.has("KeyE") || itemBtn(),
@@ -521,9 +522,9 @@ export function startKartSpike(app: HTMLElement) {
       turn = inp.steer * 2.5 * heavy * sp * (k.speed < 0 ? -1 : 1);
     }
     k.heading += turn * dt;
-    const slip = k.drift ? -k.drift * 0.32 : 0;
-    k.x += Math.sin(k.heading + slip * 0.5) * k.speed * dt;
-    k.z += Math.cos(k.heading + slip * 0.5) * k.speed * dt;
+    const slip = k.drift ? k.drift * 0.3 : 0;
+    k.x += Math.sin(k.heading - slip * 0.35) * k.speed * dt;
+    k.z += Math.cos(k.heading - slip * 0.35) * k.speed * dt;
     // sparks
     const tier = !k.drift ? -1 : k.driftT >= TIER_AT[1] ? 2 : k.driftT >= TIER_AT[0] ? 1 : 0;
     k.sparks!.forEach((s) => {
@@ -674,9 +675,11 @@ export function startKartSpike(app: HTMLElement) {
       root.addEventListener("pointerdown", () => location.reload(), { once: true });
     }
     // chase camera: behind and above, swinging wider in a drift, pulled back by speed
-    const back = 5.4 + Math.max(0, me.speed - MAX_ROAD) * 0.12;
+    // (a tall phone screen sees less to the sides: sit further back so the kart doesn't fill it)
+    const tall = camera.aspect < 1 ? 1.5 : 1;
+    const back = (5.4 + Math.max(0, me.speed - MAX_ROAD) * 0.12) * tall;
     const ch = me.heading - (me.drift ? me.drift * 0.25 : 0);
-    const want = new THREE.Vector3(me.x - Math.sin(ch) * back, Math.max(me.y, groundAt(me.x, me.z, me.i).h) + 2.4, me.z - Math.cos(ch) * back);
+    const want = new THREE.Vector3(me.x - Math.sin(ch) * back, Math.max(me.y, groundAt(me.x, me.z, me.i).h) + 2.4 * tall, me.z - Math.cos(ch) * back);
     camPos.lerp(want, Math.min(1, dt * 14));
     camera.position.copy(camPos);
     if (shake > 0) {
