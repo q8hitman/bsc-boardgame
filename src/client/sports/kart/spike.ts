@@ -115,6 +115,7 @@ function makeKart(scene: THREE.Scene, color: number, char: string, me: boolean):
   const look = lookFor(char, color);
   const km = kartMesh(look);
   body.add(km.group);
+  km.group.traverse((o) => ((o as THREE.Mesh).castShadow = true));
   const sprite = duckSprite(char);
   if (sprite.userData.seated) sprite.position.set(0, km.seatY, km.seatZ);
   body.add(sprite);
@@ -141,6 +142,7 @@ function setLook(k: Kart, look: KartLook) {
   k.body.remove(k.kartGroup);
   const km = kartMesh(look);
   k.body.add(km.group);
+  km.group.traverse((o) => ((o as THREE.Mesh).castShadow = true));
   k.kartGroup = km.group;
   if (k.sprite.userData.seated) k.sprite.position.set(0, km.seatY, km.seatZ);
   k.look = look;
@@ -277,6 +279,8 @@ export function startKartSpike(app: HTMLElement) {
   const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: false, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = !NEON_PICKED;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, 1, 0.3, 400);
   const size = () => {
@@ -288,8 +292,19 @@ export function startKartSpike(app: HTMLElement) {
   };
   addEventListener("resize", size);
   size();
+  let life: ReturnType<typeof buildUni> | null = null;
   if (NEON_PICKED) buildNeon(scene, track);
-  else buildUni(scene, track);
+  else life = buildUni(scene, track);
+  let lifeT = 0;
+  /** what moves on the track, and the sun's shadow box kept round your kart */
+  const live = (dt: number) => {
+    if (!life) return;
+    lifeT += dt;
+    life.tick(dt, lifeT, camera);
+    const d = life.sun.userData.dir as THREE.Vector3;
+    life.sun.target.position.set(me.x, 0, me.z);
+    life.sun.position.set(me.x + d.x * 150, d.y * 150, me.z + d.z * 150);
+  };
 
   // (spike: only the ducks drawn for the kart so far)
   const myChar = KART_ART.includes(profile().char) ? profile().char : "fayzah";
@@ -642,6 +657,7 @@ export function startKartSpike(app: HTMLElement) {
       camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
       camera.updateProjectionMatrix();
     }
+    live(dt);
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
@@ -661,6 +677,7 @@ export function startKartSpike(app: HTMLElement) {
       camera.position.set(k.x + Math.sin(a) * dist, k.y + h, k.z + Math.cos(a) * dist);
       camera.lookAt(k.x, k.y + 0.8, k.z);
       for (const o of karts) faceCamera(o, camera.position);
+      live(0);
       renderer.render(scene, camera);
     },
   });

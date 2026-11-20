@@ -67,7 +67,10 @@ function sample(pts: THREE.Vector3[], closed: boolean, step = 0.6): { P: THREE.V
   const count = closed ? n : n + 1;
   for (let i = 0; i < count; i++) {
     const u = i / n;
-    P.push(c.getPointAt(Math.min(1, u)));
+    // (the curve can swing a little below its points: never below the ground)
+    const q = c.getPointAt(Math.min(1, u));
+    q.y = Math.max(0, q.y);
+    P.push(q);
     T.push(c.getTangentAt(Math.min(1, u)).setY(0).normalize());
   }
   return { P, T };
