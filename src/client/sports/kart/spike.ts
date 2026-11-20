@@ -2,20 +2,29 @@
  *  kart with drift + mini-turbo, 7 computer karts, a chase camera, laps, a timer and an FPS meter. Phone: drag on the
  *  left to steer, hold «درفت» on the right. Keyboard: arrows / WASD, Space or Shift = drift. Open with ?kart. */
 import * as THREE from "three";
-import { kartMesh, lookFor } from "./kartModel";
+import { kartMesh, lookFor, LOOKS, STYLES, statsFor, type KartLook, type KartStats, type KartStyle } from "./kartModel";
 import { Track } from "./track";
 import { NEON, buildNeon } from "./neon";
+import { UNI, buildUni } from "./uni";
 import { profile } from "../../profile";
 import "./kart.css";
 
 const LAPS = 3;
 const MAX_ROAD = 30;
 const MAX_GRASS = 13;
+/** what a kart's 1..5 stats mean on the road */
+const topOf = (st: KartStats) => 28 + st.speed * 1.1; // 29.1 .. 33.5 m/s
+const accelOf = (st: KartStats) => 9 + st.accel * 2.6; // 11.6 .. 22 m/s²
+const gripOf = (st: KartStats) => 0.78 + st.handling * 0.09; // 0.87 .. 1.23 x turning
+const roughOf = (st: KartStats) => 8 + st.offroad * 1.8; // 9.8 .. 17 m/s off the road
+const sparkOf = (st: KartStats) => 0.8 + st.drift * 0.1; // drift charge rate
 const ACCEL = 16;
 const BOOST = [0, 0.7, 1.3]; // seconds of boost per spark tier
 const TIER_AT = [0.32, 0.85]; // drift charge (seconds of turning into it) for blue / orange sparks
 
-const track = new Track(NEON);
+// (spike: ?t=neon for the neon city; the university campus by default)
+const NEON_PICKED = new URLSearchParams(location.search).get("t") === "neon";
+const track = new Track(NEON_PICKED ? NEON : UNI);
 const main = track.paths[0];
 const LEN = track.LEN;
 /** boost pads in the world */
@@ -54,6 +63,9 @@ interface Kart {
   blob: THREE.Mesh;
   fallT: number;
   sprite: THREE.Sprite;
+  look: KartLook;
+  stats: KartStats;
+  kartGroup: THREE.Group;
 }
 const COLORS = [0xe8493d, 0x2f8cff, 0x36c26b, 0xffd23f, 0xc77dff, 0xff8a4c, 0x29c7c7, 0xff6b8b];
 
@@ -100,7 +112,8 @@ function faceCamera(k: Kart, cam: THREE.Vector3) {
 function makeKart(scene: THREE.Scene, color: number, char: string, me: boolean): Kart {
   const g = new THREE.Group();
   const body = new THREE.Group();
-  const km = kartMesh(lookFor(char, color));
+  const look = lookFor(char, color);
+  const km = kartMesh(look);
   body.add(km.group);
   const sprite = duckSprite(char);
   if (sprite.userData.seated) sprite.position.set(0, km.seatY, km.seatZ);
@@ -110,7 +123,7 @@ function makeKart(scene: THREE.Scene, color: number, char: string, me: boolean):
   blob.rotation.x = -Math.PI / 2;
   scene.add(blob);
   scene.add(g);
-  const k: Kart = { g, body, x: 0, y: 0, z: 0, vy: 0, heading: 0, speed: 0, i: 0, path: 0, safe: { path: 0, i: 0 }, progress: 0, lap: 0, me, drift: 0, driftT: 0, boostT: 0, air: false, lane: 0, pace: 1, blob, fallT: 0, sprite };
+  const k: Kart = { g, body, x: 0, y: 0, z: 0, vy: 0, heading: 0, speed: 0, i: 0, path: 0, safe: { path: 0, i: 0 }, progress: 0, lap: 0, me, drift: 0, driftT: 0, boostT: 0, air: false, lane: 0, pace: 1, blob, fallT: 0, sprite, look, stats: statsFor(look), kartGroup: km.group };
   if (me) {
     k.sparks = [-0.95, 0.95].map((x) => {
       const s = new THREE.Mesh(new THREE.SphereGeometry(0.28, 6, 6), new THREE.MeshBasicMaterial({ color: 0x55c8ff }));
@@ -122,6 +135,20 @@ function makeKart(scene: THREE.Scene, color: number, char: string, me: boolean):
   }
   return k;
 }
+
+/** change a kart's body (the duck stays) */
+function setLook(k: Kart, look: KartLook) {
+  k.body.remove(k.kartGroup);
+  const km = kartMesh(look);
+  k.body.add(km.group);
+  k.kartGroup = km.group;
+  if (k.sprite.userData.seated) k.sprite.position.set(0, km.seatY, km.seatZ);
+  k.look = look;
+  k.stats = statsFor(look);
+}
+const STYLE_ORDER = Object.keys(STYLES) as KartStyle[];
+/** a style in the colours of the first duck who drives it */
+const sampleLook = (st: KartStyle): KartLook => Object.values(LOOKS).find((l) => l.style === st) ?? { style: st, paint: 0xe8493d, accent: 0xffffff };
 
 function placeOnGrid(k: Kart, slot: number) {
   // two by two behind the line
@@ -243,7 +270,8 @@ export function startKartSpike(app: HTMLElement) {
   document.body.style.overflow = "hidden";
   app.innerHTML = `<div class="kt-root"><canvas class="kt-cv"></canvas>
     <div class="kt-hud"><div class="kt-pos" id="ktPos">١/٨</div><div class="kt-lap" id="ktLap">لفة ١/${LAPS}</div><div class="kt-time" id="ktTime">0:00.0</div></div>
-    <div class="kt-fps" id="ktFps"></div><div class="kt-msg" id="ktMsg">٣</div><div class="kt-boost" id="ktBoost"></div></div>`;
+    <div class="kt-fps" id="ktFps"></div><div class="kt-msg" id="ktMsg"></div><div class="kt-boost" id="ktBoost"></div>
+    <div class="kt-car" id="ktCar"></div></div>`;
   const root = app.querySelector<HTMLDivElement>(".kt-root")!;
   const cv = app.querySelector<HTMLCanvasElement>(".kt-cv")!;
   const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: false, powerPreference: "high-performance" });
@@ -260,7 +288,8 @@ export function startKartSpike(app: HTMLElement) {
   };
   addEventListener("resize", size);
   size();
-  buildNeon(scene, track);
+  if (NEON_PICKED) buildNeon(scene, track);
+  else buildUni(scene, track);
 
   // (spike: only the ducks drawn for the kart so far)
   const myChar = KART_ART.includes(profile().char) ? profile().char : "fayzah";
@@ -275,6 +304,27 @@ export function startKartSpike(app: HTMLElement) {
   }
   const me = karts[7];
   const read = controls(root);
+  // (spike: try any kart on your duck: ?car=racer, or the button before the start)
+  const asked = new URLSearchParams(location.search).get("car") as KartStyle | null;
+  if (asked && STYLES[asked]) setLook(me, { ...sampleLook(asked) });
+  const carEl = app.querySelector<HTMLDivElement>("#ktCar")!;
+  const LABELS: [keyof KartStats, string][] = [["speed", "السرعة"], ["accel", "التسارع"], ["handling", "التحكم"], ["weight", "الوزن"], ["offroad", "البر"], ["drift", "الدرفت"]];
+  const drawCar = () => {
+    const st = me.stats;
+    carEl.innerHTML = `<b>${STYLES[me.look.style].name}</b>${LABELS.map(([k, n]) => `<div class="kt-stat"><span>${n}</span><i>${"<s></s>".repeat(st[k])}${"<u></u>".repeat(5 - st[k])}</i></div>`).join("")}<button type="button" id="ktNext">جرّب سيارة ثانية</button><button type="button" class="go" id="ktGo">يلا نبدأ!</button>`;
+    carEl.querySelector<HTMLButtonElement>("#ktGo")!.onclick = (e) => {
+      e.stopPropagation();
+      ready = true;
+      carEl.style.display = "none";
+    };
+    carEl.querySelector<HTMLButtonElement>("#ktNext")!.onclick = (e) => {
+      e.stopPropagation();
+      const next = STYLE_ORDER[(STYLE_ORDER.indexOf(me.look.style) + 1) % STYLE_ORDER.length];
+      setLook(me, next === lookFor(myChar, 0).style ? lookFor(myChar, 0) : sampleLook(next));
+      drawCar();
+    };
+  };
+  drawCar();
   // (debug handle for testing the feel from the console)
   (window as unknown as { __kart: unknown }).__kart = {
     me, karts, LEN, track, force: undefined as Input | undefined,
@@ -285,6 +335,8 @@ export function startKartSpike(app: HTMLElement) {
   const $ = (id: string) => app.querySelector<HTMLElement>(`#${id}`)!;
   let t0 = performance.now();
   let countdown = 3;
+  // the race waits on the kart panel until you press go
+  let ready = false;
   let raceT = 0;
   let finished = false;
   let last = performance.now();
@@ -300,14 +352,16 @@ export function startKartSpike(app: HTMLElement) {
     const k = me;
     const g = track.ground(k.x, k.z, k.y, { path: k.path, i: k.i });
     const onRoad = g.road;
-    let top = (onRoad ? MAX_ROAD : MAX_GRASS) * (k.drift ? 0.97 : 1);
+    const st = k.stats;
+    let top = (onRoad ? topOf(st) : roughOf(st)) * (k.drift ? 0.97 : 1);
     if (k.boostT > 0) {
       k.boostT -= dt;
-      top = MAX_ROAD + 10;
+      top = topOf(st) + 10;
     }
     // throttle is automatic (non-gamers just steer); down brakes / reverses
     const target = inp.brake ? -8 : top;
-    const a = k.speed < target ? (k.boostT > 0 ? ACCEL * 2.2 : ACCEL) : -ACCEL * (inp.brake ? 1.6 : 0.9);
+    const acc = accelOf(st);
+    const a = k.speed < target ? (k.boostT > 0 ? acc * 2.2 : acc) : -ACCEL * (inp.brake ? 1.6 : 0.9);
     k.speed += Math.sign(target - k.speed) * Math.min(Math.abs(target - k.speed), Math.abs(a) * dt);
     // drift: press while turning; you keep turning that way, the stick makes it tighter or wider; release = boost
     if (inp.drift && !k.drift && !k.air && !driftWait && k.speed > 10) {
@@ -340,11 +394,11 @@ export function startKartSpike(app: HTMLElement) {
     if (k.drift) {
       // sparks build only while actually turning into the drift on the road (no farming boosts on a straight)
       if (!onRoad) k.driftT = 0;
-      else k.driftT += dt * (0.8 + 0.5 * Math.max(0, inp.steer * k.drift)); // widening the drift (stick out) still charges
-      turn = k.drift * (1.0 + 0.7 * (inp.steer * k.drift)) * 1.45;
+      else k.driftT += dt * sparkOf(st) * (0.8 + 0.5 * Math.max(0, inp.steer * k.drift)); // widening the drift (stick out) still charges
+      turn = k.drift * (1.0 + 0.7 * (inp.steer * k.drift)) * 1.45 * (0.85 + 0.15 * gripOf(st));
     } else {
-      const heavy = 1 - 0.4 * Math.min(1, Math.abs(k.speed) / MAX_ROAD);
-      turn = inp.steer * 2.5 * heavy * sp * (k.speed < 0 ? -1 : 1);
+      const heavy = 1 - 0.4 * Math.min(1, Math.abs(k.speed) / topOf(st));
+      turn = inp.steer * 2.5 * gripOf(st) * heavy * sp * (k.speed < 0 ? -1 : 1);
     }
     k.heading += turn * dt;
     const slip = k.drift ? k.drift * 0.3 : 0;
@@ -373,7 +427,8 @@ export function startKartSpike(app: HTMLElement) {
     const gap = k.progress - me.progress;
     const rubber = gap > 40 ? 0.94 : gap < -40 ? 1.06 : 1;
     if (k.boostT > 0) k.boostT -= dt;
-    const top = MAX_ROAD * k.pace * rubber + (k.boostT > 0 ? 10 : 0);
+    const g0 = track.ground(k.x, k.z, k.y, { path: k.path, i: k.i });
+    const top = (g0.road || g0.edgeX !== undefined ? topOf(k.stats) : roughOf(k.stats)) * k.pace * rubber + (k.boostT > 0 ? 10 : 0);
     k.speed += (top - k.speed) * Math.min(1, dt * 0.8);
     // at a shortcut's mouth, maybe take it
     if (k.path === 0) {
@@ -491,11 +546,15 @@ export function startKartSpike(app: HTMLElement) {
         const dz = B.z - A.z;
         const d = Math.hypot(dx, dz);
         if (d > 0.01 && d < 2.2 && Math.abs(A.y - B.y) < 1.5) {
-          const push = (2.2 - d) / 2;
-          A.x -= (dx / d) * push;
-          A.z -= (dz / d) * push;
-          B.x += (dx / d) * push;
-          B.z += (dz / d) * push;
+          const push = 2.2 - d;
+          const wa = A.stats.weight;
+          const wb = B.stats.weight;
+          const pa = (push * wb) / (wa + wb);
+          const pb = (push * wa) / (wa + wb);
+          A.x -= (dx / d) * pa;
+          A.z -= (dz / d) * pa;
+          B.x += (dx / d) * pb;
+          B.z += (dz / d) * pb;
         }
       }
   }
@@ -529,12 +588,15 @@ export function startKartSpike(app: HTMLElement) {
     const force = (window as unknown as { __kart: { force?: Input } }).__kart.force;
     const inp = force ?? read(dt);
     // countdown
-    if (countdown > 0) {
+    if (!ready) {
+      t0 = now;
+    } else if (countdown > 0) {
       const left = 3 - (now - t0) / 1000;
       const c = Math.ceil(left);
       $("ktMsg").textContent = c > 0 ? ar(c) : "انطلق!";
       if (left <= 0) {
         countdown = 0;
+        carEl.style.display = "none";
         t0 = now;
         setTimeout(() => ($("ktMsg").textContent = ""), 600);
       }
@@ -586,6 +648,10 @@ export function startKartSpike(app: HTMLElement) {
   // (testing: step the race by hand where requestAnimationFrame doesn't run)
   Object.assign((window as unknown as { __kart: object }).__kart, {
     step: (ms: number) => frame(ms, true),
+    go: () => {
+      ready = true;
+      carEl.style.display = "none";
+    },
     hold: (on: boolean) => (held = on),
     // (testing: look at a kart up close from an angle, in degrees around it)
     show: (deg: number, dist = 4.5, h = 1.6, idx = 7) => {

@@ -4,23 +4,69 @@
 //  - racer:   a low wedge racer with front and rear wings and a racing stripe (tima)
 //  - buggy:   a lifted dune buggy, chunky tread tyres, roll cage, spare tyre (ali)
 //  - muscle:  a boxy hot-rod with a blower and chrome stacks on the hood, flames down the sides (ahmad)
+//  - tub:     a bath tub on wheels: claw feet, a shower pipe, foam bubbles and a little rubber duck on the front
+//  - flask:   a lab flask on wheels: a glass bulb of bubbling liquid, a cork and a burner flame behind (science club)
+//  - pedalo:  a swan-like duck pedal boat on wheels, with a long neck at the front and a paddle wheel at the back
+// Every style drives differently (KartStats): top speed, acceleration, handling, weight, off-road, drift.
 // All styles keep the orange duck-bill nose. Forward is +z, the floor is y = 0. Each kart is merged into one mesh
 // per material (a few draw calls); geometry is shared between karts of the same style.
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-export type KartStyle = "classic" | "bubble" | "racer" | "buggy" | "muscle";
+export type KartStyle = "classic" | "bubble" | "racer" | "buggy" | "muscle" | "tub" | "flask" | "pedalo";
 export interface KartLook {
   style: KartStyle;
   paint: number;
   accent: number;
 }
-/** each duck's kart (others get a classic kart in a seat colour) */
+/** how a kart drives, each 1..5 */
+export interface KartStats {
+  speed: number;
+  accel: number;
+  handling: number;
+  weight: number;
+  offroad: number;
+  /** how fast drift sparks build */
+  drift: number;
+}
+export const STYLES: Record<KartStyle, { name: string; stats: KartStats }> = {
+  classic: { name: "كارت كلاسيكي", stats: { speed: 3, accel: 3, handling: 3, weight: 3, offroad: 3, drift: 3 } },
+  bubble: { name: "الفقاعة", stats: { speed: 2, accel: 5, handling: 4, weight: 1, offroad: 2, drift: 3 } },
+  racer: { name: "الصاروخ", stats: { speed: 5, accel: 2, handling: 3, weight: 2, offroad: 1, drift: 3 } },
+  buggy: { name: "بقي البر", stats: { speed: 3, accel: 3, handling: 2, weight: 4, offroad: 5, drift: 2 } },
+  muscle: { name: "الهوت رود", stats: { speed: 5, accel: 1, handling: 2, weight: 5, offroad: 2, drift: 5 } },
+  tub: { name: "البانيو", stats: { speed: 2, accel: 4, handling: 5, weight: 3, offroad: 3, drift: 4 } },
+  flask: { name: "الدورق", stats: { speed: 4, accel: 4, handling: 2, weight: 2, offroad: 2, drift: 4 } },
+  pedalo: { name: "قارب البط", stats: { speed: 3, accel: 3, handling: 4, weight: 3, offroad: 4, drift: 2 } },
+};
+/** each duck's own kart */
 export const LOOKS: Record<string, KartLook> = {
   fayzah: { style: "bubble", paint: 0xff7aa8, accent: 0xe8283a },
   tima: { style: "racer", paint: 0x22c4c4, accent: 0xffffff },
   ali: { style: "buggy", paint: 0x7a8a3a, accent: 0xffb21e },
   ahmad: { style: "muscle", paint: 0x2f6cff, accent: 0xff7a1a },
+  abdullah: { style: "flask", paint: 0x7ce3ff, accent: 0x2a2f8a },
+  motivator: { style: "muscle", paint: 0xffd23f, accent: 0xe8283a },
+  camel: { style: "buggy", paint: 0xc8954a, accent: 0x6b3a1e },
+  abdulrahman: { style: "racer", paint: 0x1d3b8f, accent: 0xffd23f },
+  rawan: { style: "tub", paint: 0xffffff, accent: 0xff7aa8 },
+  shouq: { style: "pedalo", paint: 0xffffff, accent: 0xc77dff },
+  loujain: { style: "bubble", paint: 0xc77dff, accent: 0xffffff },
+  bassam: { style: "classic", paint: 0xe8493d, accent: 0xffffff },
+  ruaa: { style: "flask", paint: 0x9dff8a, accent: 0x1e6b3a },
+  hora: { style: "pedalo", paint: 0xfff3c4, accent: 0x2f8cff },
+  zainab: { style: "tub", paint: 0xbfefff, accent: 0x2f8cff },
+  amna: { style: "racer", paint: 0xff3d6e, accent: 0x1b1440 },
+  hajar: { style: "bubble", paint: 0x36c26b, accent: 0xffd23f },
+  abdullah2: { style: "classic", paint: 0x29c7c7, accent: 0x1b1440 },
+  jenan: { style: "pedalo", paint: 0xffc0e0, accent: 0xff3d6e },
+  maha: { style: "flask", paint: 0xffb0f0, accent: 0x7a2a8a },
+  samiyeh: { style: "tub", paint: 0xfff6e6, accent: 0x36c26b },
+  ritaj: { style: "racer", paint: 0xff8a4c, accent: 0xffffff },
+  sheikha: { style: "muscle", paint: 0x7a2a8a, accent: 0xffd23f },
+  aya: { style: "bubble", paint: 0x8fd8ff, accent: 0xff7aa8 },
+  maryam: { style: "buggy", paint: 0xe85a8a, accent: 0xffffff },
+  haneen: { style: "classic", paint: 0xffd23f, accent: 0x2f8cff },
 };
 
 type Mat = "paint" | "accent" | "tyre" | "hub" | "chrome" | "metal" | "seat" | "bill" | "white" | "glass";
@@ -215,6 +261,82 @@ function build(style: KartStyle): { parts: Part[]; seatY: number; seatZ: number 
     bill(add, 0.66, 1.42, 1.15);
     return { parts: p, seatY: 0.92, seatZ: -0.38 };
   }
+  if (style === "tub") {
+    // a white bath tub (a lathed oval bowl) on four claw feet with small wheels, a shower pipe arching over the back,
+    // foam bubbles on the rim and a rubber duck toy on the front
+    const bowl = new THREE.LatheGeometry([new THREE.Vector2(0, 0), new THREE.Vector2(0.75, 0.02), new THREE.Vector2(0.95, 0.25), new THREE.Vector2(1.0, 0.7), new THREE.Vector2(1.04, 0.78), new THREE.Vector2(0.95, 0.78)], 24);
+    bowl.scale(0.95, 1, 1.65);
+    add(at(bowl, 0, 0.42, -0.05), "paint");
+    // a gold rim
+    const rim = new THREE.TorusGeometry(1, 0.05, 6, 32);
+    rim.scale(1.0, 1.72, 1);
+    add(at(rim, 0, 1.2, -0.05, Math.PI / 2), "hub");
+    for (const [x, z] of [[-0.7, -1.15], [0.7, -1.15], [-0.7, 1.05], [0.7, 1.05]]) {
+      add(at(new THREE.ConeGeometry(0.14, 0.4, 6), x * 0.92, 0.55, z * 0.92, Math.PI), "hub");
+    }
+    wheels(add, [[-0.95, -1.05, 0.34, 0.3], [0.95, -1.05, 0.34, 0.3], [-0.95, 1.05, 0.34, 0.3], [0.95, 1.05, 0.34, 0.3]]);
+    // foam bubbles on the rim
+    for (const [x, y, z, r] of [[-0.8, 1.25, 0.6, 0.2], [-0.7, 1.32, 0.25, 0.16], [0.82, 1.24, -0.2, 0.22], [0.7, 1.3, 0.5, 0.15], [-0.75, 1.24, -0.9, 0.18], [0.6, 1.26, -1.3, 0.16]]) add(at(new THREE.SphereGeometry(r, 10, 8), x, y, z), "white");
+    // the shower pipe and head over the back
+    add(tube([v(0.7, 1.2, -1.55), v(0.7, 2.3, -1.6), v(0.3, 2.55, -1.35), v(0.05, 2.35, -1.05)], 0.05), "chrome");
+    add(at(cyl(0.16, 0.08, 14), 0.05, 2.3, -1.0, 0.6), "chrome");
+    // the rubber duck toy on the front rim
+    add(at(new THREE.SphereGeometry(0.22, 12, 10), 0, 1.35, 1.55), "accent");
+    add(at(new THREE.SphereGeometry(0.15, 12, 10), 0, 1.62, 1.66), "accent");
+    const toyBill = new THREE.ConeGeometry(0.06, 0.16, 8);
+    add(at(toyBill, 0, 1.6, 1.82, Math.PI / 2), "bill");
+    seat(add, 0.56, -0.25, 0.7);
+    wheelAndColumn(add, 1.2, 0.5);
+    bill(add, 0.5, 1.62, 1.0);
+    return { parts: p, seatY: 0.62, seatZ: -0.3 };
+  }
+  if (style === "flask") {
+    // a lab flask: a low chassis carrying a big glass bulb of glowing liquid with a neck and a cork; the duck sits
+    // in front of it; a burner flame behind, test tubes as exhausts
+    add(at(roundedSlab(1.4, 3.2, 0.3, 0.4), 0, 0.45, 0, Math.PI / 2), "accent");
+    const bulb = new THREE.SphereGeometry(0.85, 20, 14);
+    add(at(bulb, 0, 1.25, -0.9), "glass");
+    const liquid = new THREE.SphereGeometry(0.78, 20, 14, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.55);
+    add(at(liquid, 0, 1.25, -0.9), "paint");
+    add(at(cyl(0.22, 0.6, 14), 0, 2.25, -0.9), "glass");
+    add(at(cyl(0.25, 0.2, 14), 0, 2.6, -0.9), "seat");
+    // bubbles rising in the liquid
+    for (const [x, y, z, r] of [[0.2, 1.35, -0.4, 0.09], [-0.25, 1.55, -0.55, 0.07], [0.05, 1.75, -0.35, 0.06]]) add(at(new THREE.SphereGeometry(r, 8, 6), x, y, z), "white");
+    // the burner and its flame
+    add(at(cyl(0.18, 0.3, 10), 0, 0.75, -1.75), "metal");
+    add(at(new THREE.ConeGeometry(0.16, 0.45, 10), 0, 1.1, -1.75), "bill");
+    // test-tube exhausts
+    for (const sx of [-0.55, 0.55]) add(at(cyl(0.1, 0.7, 10), sx, 0.75, -1.6, Math.PI / 2 - 0.3), "glass");
+    wheels(add, [[-0.95, -1.0, 0.46, 0.5], [0.95, -1.0, 0.46, 0.5], [-0.9, 1.1, 0.4, 0.42], [0.9, 1.1, 0.4, 0.42]]);
+    seat(add, 0.62, 0.35, 0.75);
+    wheelAndColumn(add, 1.1, 1.0);
+    bill(add, 0.48, 1.72, 1.2);
+    return { parts: p, seatY: 0.66, seatZ: 0.3 };
+  }
+  if (style === "pedalo") {
+    // a duck pedal boat on wheels: a rounded hull, a long neck rising at the front with a head and bill,
+    // little wings on the sides and a paddle wheel at the back
+    const hull = new THREE.SphereGeometry(1, 22, 12, 0, Math.PI * 2, Math.PI * 0.35, Math.PI * 0.65);
+    hull.scale(1.0, 0.75, 1.75);
+    add(at(hull, 0, 0.95, -0.1), "paint");
+    add(tube([v(0, 1.0, 1.35), v(0, 1.6, 1.65), v(0, 2.2, 1.55), v(0, 2.45, 1.3)], 0.2), "paint");
+    add(at(new THREE.SphereGeometry(0.34, 14, 10), 0, 2.55, 1.35), "paint");
+    const beak = new THREE.ConeGeometry(0.14, 0.4, 10);
+    add(at(beak, 0, 2.5, 1.75, Math.PI / 2), "bill");
+    for (const sx of [-0.18, 0.18]) add(at(new THREE.SphereGeometry(0.06, 8, 6), sx, 2.65, 1.6), "seat");
+    for (const sx of [-1, 1]) {
+      const wing = new THREE.SphereGeometry(0.5, 12, 8);
+      wing.scale(0.25, 0.55, 1.1);
+      add(at(wing, sx * 0.98, 1.15, -0.3, 0.25, 0, sx * 0.3), "accent");
+    }
+    // the paddle wheel
+    add(at(cyl(0.45, 0.7, 12), 0, 0.85, -1.85, 0, 0, Math.PI / 2), "accent");
+    for (let k = 0; k < 6; k++) add(at(new THREE.BoxGeometry(0.72, 0.08, 0.55), 0, 0.85 + Math.cos((k / 6) * Math.PI * 2) * 0.4, -1.85 + Math.sin((k / 6) * Math.PI * 2) * 0.4, (k / 6) * Math.PI * 2), "white");
+    wheels(add, [[-0.95, -0.95, 0.38, 0.36], [0.95, -0.95, 0.38, 0.36], [-0.9, 0.95, 0.36, 0.34], [0.9, 0.95, 0.36, 0.34]], { white: true });
+    seat(add, 0.66, -0.35, 0.75);
+    wheelAndColumn(add, 1.12, 0.45);
+    return { parts: p, seatY: 0.7, seatZ: -0.4 };
+  }
   // muscle: a boxy hot-rod body with a blower and chrome stacks through the hood, flames along the sides
   add(profile([[1.85, 0.4], [1.85, 0.82], [0.55, 0.92], [0.3, 0.86], [-1.0, 0.86], [-1.55, 0.95], [-1.65, 0.7], [-1.65, 0.38], [1.2, 0.32]], 1.45), "paint");
   add(at(new THREE.BoxGeometry(0.62, 0.34, 0.8), 0, 1.05, 1.05), "metal");
@@ -270,6 +392,7 @@ function sharedMats() {
     seat: phong(0x26262c, 50, 0x555555),
     bill: phong(0xff9a2a, 50, 0x553311),
     white: phong(0xfff6e6, 40, 0x444444),
+    glass: new THREE.MeshPhongMaterial({ color: 0xd8f6ff, shininess: 120, specular: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }),
   };
   return shared;
 }
@@ -291,3 +414,5 @@ export function kartMesh(look: KartLook): { group: THREE.Group; seatY: number; s
 
 /** the look for a duck: its own kart, or a classic kart in the given colour */
 export const lookFor = (char: string, fallback: number): KartLook => LOOKS[char] ?? { style: "classic", paint: fallback, accent: 0xffffff };
+/** the stats of a duck's kart */
+export const statsFor = (look: KartLook): KartStats => STYLES[look.style].stats;
