@@ -2,7 +2,7 @@
  *  kart with drift + mini-turbo, 7 computer karts, a chase camera, laps, a timer and an FPS meter. Phone: drag on the
  *  left to steer, hold «درفت» on the right. Keyboard: arrows / WASD, Space or Shift = drift. Open with ?kart. */
 import * as THREE from "three";
-import { CLUB } from "../../../shared/football/club";
+import { kartMesh } from "./kartModel";
 import { profile } from "../../profile";
 import "./kart.css";
 
@@ -230,53 +230,66 @@ interface Kart {
   sparks?: THREE.Mesh[];
   blob: THREE.Mesh;
   fallT: number;
+  sprite: THREE.Sprite;
 }
 const COLORS = [0xe8493d, 0x2f8cff, 0x36c26b, 0xffd23f, 0xc77dff, 0xff8a4c, 0x29c7c7, 0xff6b8b];
 
+/** the ducks drawn seated for the kart, 4 views each (back, back-right 45, right side, front-right 45; the left
+ *  side is the mirror). Others fall back to their football idle frame. */
+const KART_ART = ["tima", "ahmad", "ali", "fayzah"];
+const PX = 0.031; // world units per sprite pixel (same as the football ducks)
+
 function duckSprite(char: string): THREE.Sprite {
-  const tex = new THREE.TextureLoader().load(`assets/football/${char}-blue.png`);
+  const seated = KART_ART.includes(char);
+  const tex = new THREE.TextureLoader().load(seated ? `assets/kart/${char}.png` : `assets/football/${char}-blue.png`, (t) => {
+    const img = t.image as HTMLImageElement;
+    const cells = seated ? 4 : 6;
+    s.scale.set((img.width / cells) * PX * 1.15, img.height * PX * 1.15, 1);
+  });
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
   tex.colorSpace = THREE.SRGBColorSpace;
-  // frame 0 of the 6-frame strip
-  tex.repeat.set(1 / 6, 1);
-  tex.offset.set(0, 0);
+  tex.repeat.set(seated ? 1 / 4 : 1 / 6, 1);
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, alphaTest: 0.5 }));
-  s.scale.set(2.0, 2.25, 1);
-  s.position.set(0, 1.85, -0.2);
+  s.center.set(0.5, 0);
+  s.position.set(0, seated ? 0.36 : 0.5, seated ? -0.42 : -0.2);
+  s.userData.seated = seated;
   return s;
+}
+
+/** MK64-style: show the view of the duck that faces the camera (8 directions from 4 drawings, mirrored) */
+function faceCamera(k: Kart, cam: THREE.Vector3) {
+  const s = k.sprite;
+  if (!s.userData.seated) return;
+  const dx = cam.x - k.x;
+  const dz = cam.z - k.z;
+  const h = k.heading + k.body.rotation.y;
+  const right = -Math.cos(h) * dx + Math.sin(h) * dz;
+  const back = -(Math.sin(h) * dx + Math.cos(h) * dz);
+  const ang = (Math.atan2(Math.abs(right), back) * 180) / Math.PI;
+  const idx = ang < 22.5 ? 0 : ang < 67.5 ? 1 : ang < 120 ? 2 : 3;
+  const flip = right < 0 && idx > 0;
+  const t = (s.material as THREE.SpriteMaterial).map!;
+  t.repeat.x = flip ? -1 / 4 : 1 / 4;
+  t.offset.x = flip ? (idx + 1) / 4 : idx / 4;
 }
 
 function makeKart(scene: THREE.Scene, color: number, char: string, me: boolean): Kart {
   const g = new THREE.Group();
   const body = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color });
-  const dark = new THREE.MeshLambertMaterial({ color: 0x22232a });
-  const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.45, 2.6), mat);
-  chassis.position.y = 0.5;
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.35, 0.8), mat);
-  nose.position.set(0, 0.55, 1.5);
-  const seat = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.6, 0.5), dark);
-  seat.position.set(0, 0.95, -0.7);
-  body.add(chassis, nose, seat);
-  const wheel = new THREE.CylinderGeometry(0.42, 0.42, 0.4, 10);
-  wheel.rotateZ(Math.PI / 2);
-  for (const [x, z] of [[-0.95, 0.9], [0.95, 0.9], [-0.95, -0.9], [0.95, -0.9]]) {
-    const w = new THREE.Mesh(wheel, dark);
-    w.position.set(x, 0.42, z);
-    body.add(w);
-  }
-  body.add(duckSprite(char));
+  body.add(kartMesh(color));
+  const sprite = duckSprite(char);
+  body.add(sprite);
   g.add(body);
   const blob = new THREE.Mesh(new THREE.CircleGeometry(1.5, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28 }));
   blob.rotation.x = -Math.PI / 2;
   scene.add(blob);
   scene.add(g);
-  const k: Kart = { g, body, x: 0, y: 0, z: 0, vy: 0, heading: 0, speed: 0, i: 0, progress: 0, lap: 0, me, drift: 0, driftT: 0, boostT: 0, air: false, lane: 0, pace: 1, blob, fallT: 0 };
+  const k: Kart = { g, body, x: 0, y: 0, z: 0, vy: 0, heading: 0, speed: 0, i: 0, progress: 0, lap: 0, me, drift: 0, driftT: 0, boostT: 0, air: false, lane: 0, pace: 1, blob, fallT: 0, sprite };
   if (me) {
     k.sparks = [-0.95, 0.95].map((x) => {
       const s = new THREE.Mesh(new THREE.SphereGeometry(0.28, 6, 6), new THREE.MeshBasicMaterial({ color: 0x55c8ff }));
-      s.position.set(x, 0.3, -1.4);
+      s.position.set(x * 1.02, 0.25, -1.45);
       s.visible = false;
       body.add(s);
       return s;
@@ -420,12 +433,13 @@ export function startKartSpike(app: HTMLElement) {
   size();
   buildTrack(scene);
 
-  const myChar = profile().char;
-  const others = CLUB.map((c) => c.id).filter((c) => c !== myChar);
+  // (spike: only the ducks drawn for the kart so far)
+  const myChar = KART_ART.includes(profile().char) ? profile().char : "fayzah";
+  const others = KART_ART.filter((c) => c !== myChar);
   const karts: Kart[] = [];
   for (let s = 0; s < 8; s++) {
     const me = s === 7;
-    const k = makeKart(scene, COLORS[s], me ? myChar : others[(s * 5) % others.length], me);
+    const k = makeKart(scene, COLORS[s], me ? myChar : others[s % others.length], me);
     placeOnGrid(k, s);
     k.pace = me ? 1 : 0.9 + 0.012 * s + Math.random() * 0.03;
     karts.push(k);
@@ -592,8 +606,10 @@ export function startKartSpike(app: HTMLElement) {
     setTimeout(() => (boostEl.className = "kt-boost"), 700);
   }
 
-  function frame(now: number) {
-    requestAnimationFrame(frame);
+  let held = false;
+  function frame(now: number, manual = false) {
+    if (!manual) requestAnimationFrame(frame);
+    if (held && !manual) return;
     // (a frame at the same moment, or an older timestamp, moves nothing: no divide by zero)
     const dt = Math.min(0.05, (now - last) / 1000);
     if (!(dt > 0.0005)) {
@@ -639,10 +655,10 @@ export function startKartSpike(app: HTMLElement) {
       root.addEventListener("pointerdown", () => location.reload(), { once: true });
     }
     // chase camera: behind and above, swinging wider in a drift, pulled back by speed
-    const back = 8.5 + Math.max(0, me.speed - MAX_ROAD) * 0.15;
+    const back = 5.4 + Math.max(0, me.speed - MAX_ROAD) * 0.12;
     const ch = me.heading - (me.drift ? me.drift * 0.25 : 0);
-    const want = new THREE.Vector3(me.x - Math.sin(ch) * back, Math.max(me.y, groundAt(me.x, me.z, me.i).h) + 3.6, me.z - Math.cos(ch) * back);
-    camPos.lerp(want, Math.min(1, dt * 6));
+    const want = new THREE.Vector3(me.x - Math.sin(ch) * back, Math.max(me.y, groundAt(me.x, me.z, me.i).h) + 2.4, me.z - Math.cos(ch) * back);
+    camPos.lerp(want, Math.min(1, dt * 14));
     camera.position.copy(camPos);
     if (shake > 0) {
       shake -= dt;
@@ -650,7 +666,8 @@ export function startKartSpike(app: HTMLElement) {
     }
     look.set(me.x + Math.sin(me.heading) * 6, me.y + 1.2, me.z + Math.cos(me.heading) * 6);
     camera.lookAt(look);
-    const fov = 68 + Math.max(0, me.speed - 20) * 0.5 + (me.boostT > 0 ? 6 : 0);
+    for (const k of karts) faceCamera(k, camera.position);
+    const fov = 60 + Math.max(0, me.speed - 20) * 0.4 + (me.boostT > 0 ? 6 : 0);
     if (Math.abs(camera.fov - fov) > 0.2) {
       camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
       camera.updateProjectionMatrix();
@@ -659,5 +676,18 @@ export function startKartSpike(app: HTMLElement) {
   }
   requestAnimationFrame(frame);
   // (testing: step the race by hand where requestAnimationFrame doesn't run)
-  Object.assign((window as unknown as { __kart: object }).__kart, { step: (ms: number) => frame(ms) });
+  Object.assign((window as unknown as { __kart: object }).__kart, {
+    step: (ms: number) => frame(ms, true),
+    hold: (on: boolean) => (held = on),
+    // (testing: look at a kart up close from an angle, in degrees around it)
+    show: (deg: number, dist = 4.5, h = 1.6, idx = 7) => {
+      held = true;
+      const k = karts[idx];
+      const a = k.heading + (deg * Math.PI) / 180;
+      camera.position.set(k.x + Math.sin(a) * dist, k.y + h, k.z + Math.cos(a) * dist);
+      camera.lookAt(k.x, k.y + 0.8, k.z);
+      for (const o of karts) faceCamera(o, camera.position);
+      renderer.render(scene, camera);
+    },
+  });
 }
