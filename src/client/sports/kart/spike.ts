@@ -7,6 +7,7 @@ import { Track } from "./track";
 import { NEON, buildNeon } from "./neon";
 import { UNI, buildUni } from "./uni";
 import { CAMPUS, buildCampus, pushOut, type Solid } from "./campus";
+import { SOUQ, buildSouq } from "./souq";
 import { profile } from "../../profile";
 import "./kart.css";
 
@@ -28,7 +29,7 @@ const tierOf = (t: number) => (t >= TIER_AT[2] ? 3 : t >= TIER_AT[1] ? 2 : t >= 
 // (spike: the campus by default; ?t=neon the neon city; ?t=campus the campus on the bare OpenStreetMap footprints)
 const PICK = new URLSearchParams(location.search).get("t") ?? "uni";
 const NEON_PICKED = PICK === "neon";
-const track = new Track(NEON_PICKED ? NEON : PICK === "uni" ? UNI : CAMPUS);
+const track = new Track(NEON_PICKED ? NEON : PICK === "uni" ? UNI : PICK === "souq" ? SOUQ : CAMPUS);
 const main = track.paths[0];
 const LEN = track.LEN;
 /** boost pads in the world */
@@ -314,6 +315,7 @@ export function startKartSpike(app: HTMLElement) {
   /** buildings and pillars karts bump off */
   let solids: Solid[] = [];
   if (NEON_PICKED) buildNeon(scene, track);
+  else if (PICK === "souq") life = { ...buildSouq(scene, track), solids: [] };
   else if (PICK === "uni") {
     const u = buildUni(scene, track);
     life = u;
@@ -355,7 +357,8 @@ export function startKartSpike(app: HTMLElement) {
   const LABELS: [keyof KartStats, string][] = [["speed", "السرعة"], ["accel", "التسارع"], ["handling", "التحكم"], ["weight", "الوزن"], ["offroad", "البر"], ["drift", "الدرفت"]];
   const drawCar = () => {
     const st = me.stats;
-    carEl.innerHTML = `<b>${STYLES[me.look.style].name}</b>${LABELS.map(([k, n]) => `<div class="kt-stat"><span>${n}</span><i>${"<s></s>".repeat(st[k])}${"<u></u>".repeat(5 - st[k])}</i></div>`).join("")}<button type="button" id="ktNext">جرّب سيارة ثانية</button><button type="button" class="go" id="ktGo">يلا نبدأ!</button>`;
+    carEl.innerHTML = `<b>${STYLES[me.look.style].name}</b>${LABELS.map(([k, n]) => `<div class="kt-stat"><span>${n}</span><i>${"<s></s>".repeat(st[k])}${"<u></u>".repeat(5 - st[k])}</i></div>`).join("")}<button type="button" id="ktNext">جرّب سيارة ثانية</button><button type="button" class="go" id="ktGo">يلا نبدأ!</button>
+      <div class="kt-tracks">${[["uni", "الجامعة"], ["souq", "المباركية"], ["neon", "النيون"]].map(([id, n]) => `<a href="?kart&t=${id}" class="${PICK === id ? "on" : ""}">${n}</a>`).join("")}</div>`;
     carEl.querySelector<HTMLButtonElement>("#ktGo")!.onclick = (e) => {
       e.stopPropagation();
       ready = true;

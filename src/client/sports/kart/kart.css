@@ -43,3 +43,6 @@
   .kt-hint { font-size: 12px; bottom: 10%; }
   .kt-knob { width: 54px; height: 54px; bottom: calc(10% + 30px); }
 }
+.kt-tracks { display: flex; gap: 6px; margin-top: 8px; }
+.kt-tracks a { flex: 1; text-align: center; padding: 5px 0; border: 2px solid #1b1440; border-radius: 8px; color: #1b1440; text-decoration: none; background: #fffdf6; font-size: 13px; }
+.kt-tracks a.on { background: #1b1440; color: #ffd23f; }

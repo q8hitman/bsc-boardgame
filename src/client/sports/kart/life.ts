@@ -145,7 +145,7 @@ export function bannerTex(text: string, bg: string, fg: string) {
 }
 
 /** Kuwait flags on poles, waving */
-export function flags(scene: THREE.Scene, spots: { x: number; z: number; face: number; h?: number }[]): Tick {
+export function flags(scene: THREE.Scene, spots: { x: number; z: number; face: number; h?: number; hang?: boolean }[]): Tick {
   const tex = canvasTex(192, 96, (c) => {
     c.fillStyle = "#007a3d";
     c.fillRect(0, 0, 192, 32);
@@ -164,9 +164,11 @@ export function flags(scene: THREE.Scene, spots: { x: number; z: number; face: n
   const cloths: THREE.Mesh[] = [];
   for (const s of spots) {
     const h = s.h ?? 10;
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, h, 6), new THREE.MeshLambertMaterial({ color: 0xd7dade }));
-    pole.position.set(s.x, h / 2, s.z);
-    scene.add(pole);
+    if (!s.hang) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, h, 6), new THREE.MeshLambertMaterial({ color: 0xd7dade }));
+      pole.position.set(s.x, h / 2, s.z);
+      scene.add(pole);
+    }
     const geo = new THREE.PlaneGeometry(3.6, 1.8, 12, 1);
     geo.translate(1.8, 0, 0);
     const cloth = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }));
