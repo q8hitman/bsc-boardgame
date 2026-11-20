@@ -16,7 +16,7 @@
 .kt-hint { position: absolute; left: 7%; bottom: 18%; font-weight: 800; font-size: 14px; color: #fff; text-shadow: 2px 2px 0 #1b1440; }
 .kt-knob { position: absolute; left: calc(7% + 30px); bottom: calc(18% + 34px); width: 64px; height: 64px; border-radius: 50%; background: #fffdf6; border: 3px solid #1b1440; box-shadow: 0 4px 0 #1b1440; opacity: .85; }
 .kt-stick.on .kt-hint { opacity: 0; }
-.kt-btns { position: absolute; right: max(14px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: center; gap: 12px; pointer-events: auto; }
+.kt-btns { position: absolute; right: max(14px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: auto; }
 .kt-btns button { font-family: inherit; font-weight: 800; color: #1b1440; border: 3px solid #1b1440; border-radius: 50%; box-shadow: 0 6px 0 #1b1440; touch-action: none; -webkit-tap-highlight-color: transparent; }
 .kt-drift { width: 88px; height: 88px; font-size: 20px; background: #ff9a2a; align-self: flex-end; }
 .kt-row { display: flex; align-items: flex-end; gap: 12px; direction: ltr; }
@@ -33,3 +33,13 @@
 .kt-stat u { background: #e9e3d3; }
 .kt-car button { margin-top: 6px; width: 100%; font: inherit; font-size: 14px; padding: 6px; border: 3px solid #1b1440; border-radius: 10px; background: #ffd23f; box-shadow: 0 3px 0 #1b1440; }
 .kt-car button.go { background: #36c26b; color: #fff; font-size: 18px; -webkit-text-stroke: 0; }
+/* tall phone screens: smaller buttons tucked into the bottom-right corner, clear of the kart in the middle */
+@media (orientation: portrait) {
+  .kt-gas { width: 86px; height: 86px; font-size: 18px; }
+  .kt-brake { width: 58px; height: 58px; font-size: 14px; }
+  .kt-drift { width: 70px; height: 70px; font-size: 16px; }
+  .kt-btns { gap: 8px; bottom: max(12px, env(safe-area-inset-bottom)); }
+  .kt-row { gap: 8px; }
+  .kt-hint { font-size: 12px; bottom: 10%; }
+  .kt-knob { width: 54px; height: 54px; bottom: calc(10% + 30px); }
+}

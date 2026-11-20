@@ -706,7 +706,11 @@ export function startKartSpike(app: HTMLElement) {
       shake -= dt;
       camera.position.y += (Math.random() - 0.5) * shake;
     }
-    look.set(me.x + Math.sin(me.heading) * 6, me.y + 1.2, me.z + Math.cos(me.heading) * 6);
+    {
+      // (on a tall phone screen aim closer, so the kart sits higher, above the buttons)
+      const ahead = tall > 1 ? 1.5 : 6;
+      look.set(me.x + Math.sin(me.heading) * ahead, me.y + 1.2, me.z + Math.cos(me.heading) * ahead);
+    }
     camera.lookAt(look);
     for (const k of karts) {
       faceCamera(k, camera.position);

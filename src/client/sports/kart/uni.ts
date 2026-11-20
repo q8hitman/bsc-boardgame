@@ -187,9 +187,15 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
       }
       // the slope down to the sand under raised road
       if (p.P[i].y > 0.3) for (const sd of [1, -1]) quad(shoulder, edge(i, sd * W, 0), edge(j, sd * W, 0), edge(i, sd * (W + p.P[i].y * 3), -p.P[i].y), edge(j, sd * (W + p.P[j].y * 3), -p.P[j].y));
-      if (Math.floor(p.S[i] / 6) % 2 === 0) quad(line, edge(i, 0.16, lift + 0.02), edge(j, 0.16, lift + 0.02), edge(i, -0.16, lift + 0.02), edge(j, -0.16, lift + 0.02));
+      // where a shortcut lies over the main road, only the main road's own markings show (no doubled lines)
+      const c0 = p.P[i];
+      const overMain = pi > 0 && track.onRoad(c0.x, c0.z, c0.y, pi);
+      if (!overMain && Math.floor(p.S[i] / 6) % 2 === 0) quad(line, edge(i, 0.16, lift + 0.02), edge(j, 0.16, lift + 0.02), edge(i, -0.16, lift + 0.02), edge(j, -0.16, lift + 0.02));
       for (const side of [1, -1]) {
-        quad(line, edge(i, side * (W - 0.5), lift + 0.02), edge(j, side * (W - 0.5), lift + 0.02), edge(i, side * (W - 0.8), lift + 0.02), edge(j, side * (W - 0.8), lift + 0.02));
+        const el = edge(i, side * (W - 0.65), 0);
+        // the edge line stops where another road opens off this side
+        const opens = track.onRoad(edge(i, side * (W + 0.8), 0).x, edge(i, side * (W + 0.8), 0).z, p.P[i].y, pi);
+        if (!overMain && !opens && !(pi > 0 && track.onRoad(el.x, el.z, p.P[i].y, pi))) quad(line, edge(i, side * (W - 0.5), lift + 0.02), edge(j, side * (W - 0.5), lift + 0.02), edge(i, side * (W - 0.8), lift + 0.02), edge(j, side * (W - 0.8), lift + 0.02));
         // yellow and black kerb blocks, a little raised (open where another road joins)
         const e = edge(i, side * (W + 0.3), 0);
         if (track.onRoad(e.x, e.z, p.P[i].y, pi)) continue;
