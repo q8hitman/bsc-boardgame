@@ -235,9 +235,9 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
     c.fillStyle = "#cdbb98";
     c.fillRect(0, 118, 128, 10);
   });
-  const shopGeo = new THREE.PlaneGeometry(5.6, 4.4);
-  const upperGeo = new THREE.PlaneGeometry(5.6, 5);
-  const signGeo = new THREE.BoxGeometry(4.6, 0.8, 0.2);
+  const shopGeo = new THREE.PlaneGeometry(6.4, 6.4);
+  const upperGeo = new THREE.PlaneGeometry(6.4, 7);
+  const signGeo = new THREE.PlaneGeometry(5.8, 1.5);
   const shopsBy: THREE.Matrix4[][] = goods.map(() => []);
   const uppers: THREE.Matrix4[] = [];
   const signs: THREE.Matrix4[] = [];
@@ -256,9 +256,9 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
         // facing the road
         const rot = Math.atan2(-n.x * sd, -n.z * sd);
         const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot);
-        shopsBy[bay++ % goods.length].push(new THREE.Matrix4().compose(new THREE.Vector3(x, 2.2, z), q, new THREE.Vector3(1, 1, 1)));
-        uppers.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 6.9, z), q, new THREE.Vector3(1, 1, 1)));
-        signs.push(new THREE.Matrix4().compose(new THREE.Vector3(x - n.x * sd * 0.2, 4.7, z - n.z * sd * 0.2), q, new THREE.Vector3(1, 1, 1)));
+        shopsBy[bay++ % goods.length].push(new THREE.Matrix4().compose(new THREE.Vector3(x, 3.2, z), q, new THREE.Vector3(1, 1, 1)));
+        uppers.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 9.9, z), q, new THREE.Vector3(1, 1, 1)));
+        signs.push(new THREE.Matrix4().compose(new THREE.Vector3(x - n.x * sd * 0.25, 7.2, z - n.z * sd * 0.25), q, new THREE.Vector3(1, 1, 1)));
         if (bay % 3 === 0 && pi !== 2) shoppers.push(new THREE.Vector3(p.P[i].x + n.x * sd * (p.width + 0.6), 0, p.P[i].z + n.z * sd * (p.width + 0.6)));
       }
     }
@@ -271,13 +271,55 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
   const upperMesh = new THREE.InstancedMesh(upperGeo, new THREE.MeshLambertMaterial({ map: upper }), uppers.length);
   uppers.forEach((m, j) => upperMesh.setMatrixAt(j, m));
   upperMesh.receiveShadow = true;
-  const signMesh = new THREE.InstancedMesh(signGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), signs.length);
-  const signCols = [0x1d6b4a, 0x8b1e2d, 0x1f3b73, 0xc98b2a, 0x3a2618];
-  signs.forEach((m, j) => {
-    signMesh.setMatrixAt(j, m);
-    signMesh.setColorAt(j, new THREE.Color(signCols[j % signCols.length]));
+  // the shop names: made up, light and nostalgic (old prices, the neighbourhood shop, duck puns); no real shop,
+  // nothing about anyone
+  const NAMES: [string, string, string][] = [
+    ["بقالة الفريج · الحساب بالدفتر", "#1d6b4a", "#fff6d8"],
+    ["تمور أبو بطة · حلو مثل قلبك", "#5a2d12", "#ffd98a"],
+    ["كل شي بربع دينار", "#8b1e2d", "#ffffff"],
+    ["بهارات الحارّة · حارة وايد", "#c7302a", "#fff2c4"],
+    ["عطور الريشة الفوّاحة", "#3b1f5a", "#ffd9f2"],
+    ["حلويات زمان · بيض اللقلق", "#e86a92", "#ffffff"],
+    ["خيّاط البشوت · نخيط حتى الجناح", "#1f3b73", "#ffe7a8"],
+    ["نخي وباجلا · حار وطازج", "#a0522d", "#fff6d8"],
+    ["شاي كرك · الكوب الأخير", "#7a4a1d", "#ffe3b0"],
+    ["ألعاب الفريج · الدقيقة بـ ٢٥ فلس", "#2f8cff", "#ffffff"],
+    ["قرطاسية الواجب · على باچر", "#36a36b", "#ffffff"],
+    ["استوديو قُل كواك", "#1b1440", "#ffd23f"],
+    ["تصليح سياكل · نبنشر بسرعة", "#444b55", "#ffffff"],
+    ["مقهى يا هلا والله", "#6b3a1f", "#ffe7c2"],
+    ["سجاد الجدة · يطير إذا تبي", "#8b1e2d", "#ffd98a"],
+    ["خبز تنور · طلع من التنور", "#c98b2a", "#3a1f0a"],
+    ["عسل النحلة النشيطة", "#e3a51a", "#3a1f0a"],
+    ["كوكتيل ٩٠ فلس · مثل أيام أول", "#ff6f3c", "#ffffff"],
+  ];
+  const nameMats = NAMES.map(([text, bg, fg]) =>
+    new THREE.MeshLambertMaterial({
+      map: canvasTex(512, 132, (c) => {
+        c.fillStyle = bg;
+        c.fillRect(0, 0, 512, 132);
+        c.strokeStyle = "#e6c87a";
+        c.lineWidth = 6;
+        c.strokeRect(6, 6, 500, 120);
+        c.fillStyle = fg;
+        let size = 46;
+        c.font = `bold ${size}px 'Noto Kufi Arabic', Tahoma, sans-serif`;
+        while (c.measureText(text).width > 470 && size > 24) c.font = `bold ${(size -= 2)}px 'Noto Kufi Arabic', Tahoma, sans-serif`;
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.fillText(text, 256, 72);
+      }),
+      emissive: 0x1a1006,
+    }),
+  );
+  const byName: THREE.Matrix4[][] = NAMES.map(() => []);
+  signs.forEach((m, j) => byName[(j * 7) % NAMES.length].push(m));
+  byName.forEach((list, k) => {
+    const im = new THREE.InstancedMesh(signGeo, nameMats[k], list.length);
+    list.forEach((m, j) => im.setMatrixAt(j, m));
+    scene.add(im);
   });
-  scene.add(upperMesh, signMesh);
+  scene.add(upperMesh);
   ticks.push(crowd(scene, shoppers));
 
   // the beige mass behind the shops (so the lanes read as built up), with parapets
@@ -294,7 +336,7 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
     // keep the courtyard by the start open
     if (Math.hypot(x + 20, z - 30) < 32) continue;
     const s = 0.8 + rnd() * 0.7;
-    blocks.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 4.5 * s, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.round(rnd() * 3) * (Math.PI / 2)), new THREE.Vector3(1 + rnd(), s, 1 + rnd())));
+    blocks.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 7 * s, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.round(rnd() * 3) * (Math.PI / 2)), new THREE.Vector3(1 + rnd(), s, 1 + rnd())));
   }
   const blockTex = canvasTex(128, 128, (c) => {
     c.fillStyle = "#e3d1ae";
@@ -304,7 +346,7 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
     c.fillStyle = "#cdb88f";
     c.fillRect(0, 0, 128, 10);
   });
-  const blockMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(14, 9, 14), new THREE.MeshLambertMaterial({ map: blockTex }), blocks.length);
+  const blockMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(14, 14, 14), new THREE.MeshLambertMaterial({ map: blockTex }), blocks.length);
   blocks.forEach((m, k) => blockMesh.setMatrixAt(k, m));
   blockMesh.castShadow = true;
   blockMesh.receiveShadow = true;
@@ -323,8 +365,8 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
   const bulbColors = [0xfff2b0, 0xffd46a, 0x9fe0ff, 0xffffff].map((c) => new THREE.Color(c));
   track.paths.forEach((p, pi) => {
     const W = p.width + (pi === 1 ? 0.3 : 0.8);
-    const H = pi === 1 ? 5 : 7.2;
-    const ridge = pi === 1 ? 5.4 : 10.4;
+    const H = pi === 1 ? 8 : 13.4;
+    const ridge = pi === 1 ? 8.4 : 17;
     for (let i = 0; i < p.n - 1; i++) {
       if (!covered(pi, i)) continue;
       const n = p.normal(i);
@@ -385,7 +427,7 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
   bg.setAttribute("color", new THREE.Float32BufferAttribute(bulbCol, 3));
   scene.add(new THREE.Points(bg, new THREE.PointsMaterial({ size: 0.35, vertexColors: true })));
   // Kuwait flags hanging under the roof (a flag on a short pole from the ridge, waving gently)
-  ticks.push(flags(scene, hangFlags.map((f) => ({ ...f, h: 9.6, hang: true }))));
+  ticks.push(flags(scene, hangFlags.map((f) => ({ ...f, h: 15, hang: true }))));
 
   // ---------------------------------------------------------------- the courtyard by the start
   // the Sheikh Mubarak kiosk: a small beige house with a wooden balcony, an outside stair and a flag
@@ -427,7 +469,7 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
     });
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(12, 3), new THREE.MeshLambertMaterial({ map: tex }));
     const i = Math.round(0.08 * main.n);
-    sign.position.set(main.P[i].x, 8.6, main.P[i].z);
+    sign.position.set(main.P[i].x, 12, main.P[i].z);
     sign.rotation.y = main.heading(i) + Math.PI;
     scene.add(sign);
   }
