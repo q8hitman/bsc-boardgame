@@ -6,6 +6,7 @@ import { kartMesh, lookFor, LOOKS, STYLES, statsFor, type KartLook, type KartSta
 import { Track } from "./track";
 import { NEON, buildNeon } from "./neon";
 import { UNI, buildUni } from "./uni";
+import { CAMPUS, buildCampus, pushOut, type Solid } from "./campus";
 import { profile } from "../../profile";
 import "./kart.css";
 
@@ -22,9 +23,10 @@ const ACCEL = 16;
 const BOOST = [0, 0.7, 1.3]; // seconds of boost per spark tier
 const TIER_AT = [0.32, 0.85]; // drift charge (seconds of turning into it) for blue / orange sparks
 
-// (spike: ?t=neon for the neon city; the university campus by default)
-const NEON_PICKED = new URLSearchParams(location.search).get("t") === "neon";
-const track = new Track(NEON_PICKED ? NEON : UNI);
+// (spike: the campus on the real map by default; ?t=neon the neon city; ?t=uni the first campus sketch)
+const PICK = new URLSearchParams(location.search).get("t") ?? "campus";
+const NEON_PICKED = PICK === "neon";
+const track = new Track(NEON_PICKED ? NEON : PICK === "uni" ? UNI : CAMPUS);
 const main = track.paths[0];
 const LEN = track.LEN;
 /** boost pads in the world */
@@ -284,8 +286,10 @@ export function startKartSpike(app: HTMLElement) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, 1, 0.3, 400);
   const size = () => {
-    const w = root.clientWidth;
-    const h = root.clientHeight;
+    // (a hidden or collapsing page reports 0: fall back to the window, never a broken camera)
+    const w = root.clientWidth || innerWidth;
+    const h = root.clientHeight || innerHeight;
+    if (!(w > 0 && h > 0)) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -293,8 +297,15 @@ export function startKartSpike(app: HTMLElement) {
   addEventListener("resize", size);
   size();
   let life: ReturnType<typeof buildUni> | null = null;
+  /** buildings and pillars karts bump off */
+  let solids: Solid[] = [];
   if (NEON_PICKED) buildNeon(scene, track);
-  else life = buildUni(scene, track);
+  else if (PICK === "uni") life = buildUni(scene, track);
+  else {
+    const c = buildCampus(scene, track);
+    life = c;
+    solids = c.solids;
+  }
   let lifeT = 0;
   /** what moves on the track, and the sun's shadow box kept round your kart */
   const live = (dt: number) => {
@@ -342,7 +353,7 @@ export function startKartSpike(app: HTMLElement) {
   drawCar();
   // (debug handle for testing the feel from the console)
   (window as unknown as { __kart: unknown }).__kart = {
-    me, karts, LEN, track, force: undefined as Input | undefined,
+    me, karts, LEN, track, camera, force: undefined as Input | undefined,
     // (testing: the point n samples ahead of a kart on its road, carrying on along the main road after a shortcut)
     ahead: (k: Kart, n: number) => aheadOf(k, n),
   };
@@ -368,7 +379,7 @@ export function startKartSpike(app: HTMLElement) {
     const g = track.ground(k.x, k.z, k.y, { path: k.path, i: k.i });
     const onRoad = g.road;
     const st = k.stats;
-    let top = (onRoad ? topOf(st) : roughOf(st)) * (k.drift ? 0.97 : 1);
+    let top = (onRoad ? (g.rough ? roughOf(st) + 9 : topOf(st)) : roughOf(st)) * (k.drift ? 0.97 : 1);
     if (k.boostT > 0) {
       k.boostT -= dt;
       top = topOf(st) + 10;
@@ -437,13 +448,28 @@ export function startKartSpike(app: HTMLElement) {
     return { p: main, i: main.wrap(p.exit + (j - (p.n - 1))) };
   }
   const lastI = new Map<Kart, number>();
+  const stuck = new Map<Kart, number>();
   function stepAI(k: Kart, dt: number) {
+    // stuck against something for a while: back on the middle of the road a little further on
+    const st = k.speed < 5 ? (stuck.get(k) ?? 0) + dt : 0;
+    stuck.set(k, st);
+    if (st > 1.2) {
+      const p0 = track.paths[k.path];
+      const j = p0.wrap(k.i + 6);
+      k.i = j;
+      k.x = p0.P[j].x;
+      k.z = p0.P[j].z;
+      k.heading = p0.heading(j);
+      k.lane = 0;
+      k.speed = 12;
+      stuck.set(k, 0);
+    }
     // they drive the line (lane offset), a touch faster when behind you, slower when far ahead
     const gap = k.progress - me.progress;
     const rubber = gap > 40 ? 0.94 : gap < -40 ? 1.06 : 1;
     if (k.boostT > 0) k.boostT -= dt;
     const g0 = track.ground(k.x, k.z, k.y, { path: k.path, i: k.i });
-    const top = (g0.road || g0.edgeX !== undefined ? topOf(k.stats) : roughOf(k.stats)) * k.pace * rubber + (k.boostT > 0 ? 10 : 0);
+    const top = (g0.road || g0.edgeX !== undefined ? (g0.rough ? roughOf(k.stats) + 9 : topOf(k.stats)) : roughOf(k.stats)) * k.pace * rubber + (k.boostT > 0 ? 10 : 0);
     k.speed += (top - k.speed) * Math.min(1, dt * 0.8);
     // at a shortcut's mouth, maybe take it
     if (k.path === 0) {
@@ -502,6 +528,12 @@ export function startKartSpike(app: HTMLElement) {
       k.x = g.edgeX;
       k.z = g.edgeZ!;
       k.speed *= 1 - 1.2 * dt;
+    }
+    // buildings: you bump off them
+    if (solids.length && pushOut(solids, k, 1.1)) {
+      k.speed *= 1 - 3 * dt;
+      // a computer kart that hits a wall steers back toward the middle of the road
+      if (!k.me) k.lane *= 1 - 4 * dt;
     }
     // height: on the ground, or flying off a crest / over a gap
     k.vy -= 30 * dt;
@@ -640,6 +672,8 @@ export function startKartSpike(app: HTMLElement) {
     const ch = me.heading - (me.drift ? me.drift * 0.25 : 0);
     const want = new THREE.Vector3(me.x - Math.sin(ch) * back, Math.max(me.y, track.ground(me.x, me.z, me.y, { path: me.path, i: me.i }).h) + 2.4 * tall, me.z - Math.cos(ch) * back);
     camPos.lerp(want, Math.min(1, dt * 14));
+    // (never inside a building: slide the camera out of walls)
+    if (solids.length) pushOut(solids, camPos, 0.7);
     camera.position.copy(camPos);
     if (shake > 0) {
       shake -= dt;

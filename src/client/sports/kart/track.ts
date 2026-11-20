@@ -16,6 +16,8 @@ export interface PathDef {
   gaps?: [number, number][];
   /** how likely a computer kart takes this branch (0..1) */
   aiTake?: number;
+  /** a slower surface (indoor tiles, sand track): you drive it at off-road speed plus a little */
+  rough?: boolean;
 }
 export interface TrackDef {
   name: string;
@@ -42,6 +44,7 @@ export class Path {
     public enter = 0,
     public exit = 0,
     public aiTake = 0,
+    public rough = false,
   ) {}
   get n() {
     return this.P.length;
@@ -82,6 +85,8 @@ export interface Ground {
   path: number;
   i: number;
   lat: number;
+  /** on a slower surface */
+  rough?: boolean;
   /** off every road, the nearest road's edge to slide back to (walls) */
   edgeX?: number;
   edgeZ?: number;
@@ -141,7 +146,7 @@ export class Track {
     const a0 = main.wrap(a - lead);
     const e1 = main.wrap(e + lead);
     const pts = [main.P[a0], main.P[a], ...b.pts.map((p) => new THREE.Vector3(...p)), main.P[e], main.P[e1]];
-    const p = new Path(b.width, false, a0, e1, b.aiTake ?? 0.4);
+    const p = new Path(b.width, false, a0, e1, b.aiTake ?? 0.4, !!b.rough);
     const s = sample(pts, false);
     p.P = s.P;
     p.T = s.T;
@@ -243,7 +248,7 @@ export class Track {
     const n = p.normal(i);
     const lat = (x - q.x) * n.x + (z - q.z) * n.z;
     const road = Math.abs(lat) <= p.width;
-    if (road) return { h: p.gap[i] ? -60 : q.y, road: !p.gap[i], path, i, lat };
+    if (road) return { h: p.gap[i] ? -60 : q.y, road: !p.gap[i], path, i, lat, rough: p.rough };
     if (this.def.edge === "wall") {
       const e = Math.sign(lat) * (p.width - 0.6);
       return { h: p.gap[i] ? -60 : q.y, road: false, path, i, lat, edgeX: q.x + n.x * e, edgeZ: q.z + n.z * e };
