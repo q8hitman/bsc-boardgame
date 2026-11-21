@@ -68,7 +68,7 @@ export function home(app: HTMLElement, go: Go) {
         </section>
         <section class="all rise" style="--d:5">
           <h2>كل الألعاب</h2>
-          <div class="tiles">${CATALOG.filter((g) => g.id !== today.id).map(tile).join("")}</div>
+          <div class="tiles">${kartTile()}${CATALOG.filter((g) => g.id !== today.id).map(tile).join("")}</div>
         </section>
       </main>
       <section class="tail">
@@ -110,6 +110,14 @@ function tile(g: GameInfo) {
     <span class="t-art"><img src="assets/thumbs/${g.id}.jpg" alt="" loading="lazy">${g.badge ? `<em class="ribbon">${esc(g.badge)}</em>` : ""}</span>
     <span class="t-body"><b>${esc(g.name)}</b><span class="tag">${esc(g.tag)}</span></span>
   </button>`;
+}
+
+/** «سباق البط»: the kart race (on this device against the computer for now; not a room game yet) */
+function kartTile() {
+  return `<a class="tile" href="?kart" data-kart>
+    <span class="t-art"><img src="assets/thumbs/kart.jpg" alt="" loading="lazy"><em class="ribbon">جديد</em></span>
+    <span class="t-body"><b>سباق البط</b><span class="tag">سوق، جامعة، ومدينة نيون. اختصارات ودرفت وتيربو</span></span>
+  </a>`;
 }
 
 /** the chip and the wins pill, from the current source (local record or account) */

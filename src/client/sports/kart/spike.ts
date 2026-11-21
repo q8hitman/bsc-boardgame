@@ -285,7 +285,7 @@ export function startKartSpike(app: HTMLElement) {
   document.body.style.overflow = "hidden";
   app.innerHTML = `<div class="kt-root"><canvas class="kt-cv"></canvas>
     <div class="kt-hud"><div class="kt-pos" id="ktPos">١/٨</div><div class="kt-lap" id="ktLap">لفة ١/${LAPS}</div><div class="kt-time" id="ktTime">0:00.0</div></div>
-    <div class="kt-fps" id="ktFps"></div><div class="kt-msg" id="ktMsg"></div><div class="kt-boost" id="ktBoost"></div><button type="button" class="kt-mute" id="ktMute">🔊</button>
+    <div class="kt-fps" id="ktFps"></div><div class="kt-msg" id="ktMsg"></div><div class="kt-boost" id="ktBoost"></div><button type="button" class="kt-mute" id="ktMute">🔊</button><a class="kt-mute kt-home" href="./" aria-label="رجوع للألعاب">🏠</a>
     <div class="kt-car" id="ktCar"></div></div>`;
   const root = app.querySelector<HTMLDivElement>(".kt-root")!;
   const audio = new KartAudio(PICK === "souq" ? "hijaz" : "major");
