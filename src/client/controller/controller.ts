@@ -263,8 +263,12 @@ export function startController(root: HTMLElement, initialCode: string, local?: 
       if (busy) return;
       busy = true;
       const n = savedName();
-      main.querySelector<HTMLButtonElement>("#go")!.textContent = "لحظة…";
-      sock.timeout(20000).emit("room:create", { name: n, profileId: profile().id, char: profile().char }, (err, res) => {
+      const btn = main.querySelector<HTMLButtonElement>("#go")!;
+      btn.textContent = "لحظة…";
+      // the free online server sleeps when nobody plays: waking it takes up to a minute, so say so and wait
+      const slow = setTimeout(() => (btn.textContent = "السيرفر يصحى… أول مرة تاخذ دقيقة"), 4000);
+      sock.timeout(75000).emit("room:create", { name: n, profileId: profile().id, char: profile().char }, (err, res) => {
+        clearTimeout(slow);
         if (err || !res) return showCreate("السيرفر ما رد. جرّب مرة ثانية");
         if (!res.ok) return showCreate(res.error);
         joined(res.code, res.playerId, res.token);

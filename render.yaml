@@ -1,6 +1,6 @@
 # Render blueprint: the game server online (projector + phones from any network).
 # Deploy: https://render.com/deploy?repo=https://github.com/q8hitman/bsc-boardgame
-# Every push to main redeploys it. Free plan: it sleeps after ~15 min without visitors,
+# Every push to main redeploys it (through the Render GitHub app on this repo). Free plan: it sleeps after ~15 min without visitors,
 # and the first visit after that takes about a minute to wake it up.
 services:
   - type: web
