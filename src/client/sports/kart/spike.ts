@@ -360,7 +360,14 @@ export function startKartSpike(app: HTMLElement) {
   };
 
   // (spike: only the ducks drawn for the kart so far)
-  const myChar = KART_ART.includes(profile().char) ? profile().char : "fayzah";
+  // your duck: the one picked on the kart panel, else your profile's duck, else Fayzah
+  let picked = "";
+  try {
+    picked = localStorage.getItem("kart-duck") ?? "";
+  } catch {
+    /* (no storage) */
+  }
+  const myChar = KART_ART.includes(picked) ? picked : KART_ART.includes(profile().char) ? profile().char : "fayzah";
   const others = KART_ART.filter((c) => c !== myChar);
   const karts: Kart[] = [];
   for (let s = 0; s < 8; s++) {
@@ -379,13 +386,26 @@ export function startKartSpike(app: HTMLElement) {
   const LABELS: [keyof KartStats, string][] = [["speed", "السرعة"], ["accel", "التسارع"], ["handling", "التحكم"], ["weight", "الوزن"], ["offroad", "البر"], ["drift", "الدرفت"]];
   const drawCar = () => {
     const st = me.stats;
-    carEl.innerHTML = `<b>${STYLES[me.look.style].name}</b>${LABELS.map(([k, n]) => `<div class="kt-stat"><span>${n}</span><i>${"<s></s>".repeat(st[k])}${"<u></u>".repeat(5 - st[k])}</i></div>`).join("")}<button type="button" id="ktNext">جرّب سيارة ثانية</button><button type="button" class="go" id="ktGo">يلا نبدأ!</button>
+    carEl.innerHTML = `<div class="kt-ducks">${KART_ART.map((c) => `<button type="button" data-duck="${c}" class="${c === myChar ? "on" : ""}" aria-label="${c}" style="background-image:url(assets/football/${c}-blue.png)"></button>`).join("")}</div><b>${STYLES[me.look.style].name}</b>${LABELS.map(([k, n]) => `<div class="kt-stat"><span>${n}</span><i>${"<s></s>".repeat(st[k])}${"<u></u>".repeat(5 - st[k])}</i></div>`).join("")}<button type="button" id="ktNext">جرّب سيارة ثانية</button><button type="button" class="go" id="ktGo">يلا نبدأ!</button>
       <div class="kt-tracks">${[["uni", "الجامعة"], ["souq", "المباركية"], ["neon", "النيون"]].map(([id, n]) => `<a href="?kart&t=${id}" class="${PICK === id ? "on" : ""}">${n}</a>`).join("")}</div>`;
     carEl.querySelector<HTMLButtonElement>("#ktGo")!.onclick = (e) => {
       e.stopPropagation();
       ready = true;
       carEl.style.display = "none";
     };
+    // another duck: remembered, and the race set up again with them (their own kart)
+    carEl.querySelectorAll<HTMLButtonElement>("[data-duck]").forEach((btn) => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (btn.dataset.duck === myChar) return;
+        try {
+          localStorage.setItem("kart-duck", btn.dataset.duck!);
+        } catch {
+          /* (no storage) */
+        }
+        location.reload();
+      };
+    });
     carEl.querySelector<HTMLButtonElement>("#ktNext")!.onclick = (e) => {
       e.stopPropagation();
       const next = STYLE_ORDER[(STYLE_ORDER.indexOf(me.look.style) + 1) % STYLE_ORDER.length];
