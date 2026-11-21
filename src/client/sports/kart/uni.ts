@@ -21,7 +21,7 @@ export const UNI: TrackDef = {
     pts: [
       [0, 0, 0], [0, 0, 60], [0, 0, 115], [18, 0, 142], [34, 0, 170], [26, 0, 200], [2, 0, 214], [-35, 0, 222],
       [-85, 0, 214], [-125, 0, 190], [-165, 0, 148], [-180, 0, 95], [-168, 0, 48], [-140, 0, 10], [-100, 0, -45],
-      [-55, 2.6, -62], [-15, 0, -40],
+      [-72, 2.6, -60], [-40, 0, -56], [-15, 0, -40],
     ],
   },
   branches: [
@@ -415,6 +415,8 @@ export function buildUni(scene: THREE.Scene, track: Track): { tick: Tick; sun: T
     if (i > 14 && i < gal.n - 14) quad(roof, a, b, c, d);
     if (i > 14 && i < gal.n - 14 && i % 10 === 0) {
       for (const sd of [1, -1]) {
+        // (no post standing in the main road where the galleria meets it)
+        if (track.onRoad(gal.P[i].x + n.x * sd * W, gal.P[i].z + n.z * sd * W, gal.P[i].y, 1)) continue;
         const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 7, 0.5), frameMat);
         post.position.set(gal.P[i].x + n.x * sd * W, 3.5, gal.P[i].z + n.z * sd * W);
         scene.add(post);

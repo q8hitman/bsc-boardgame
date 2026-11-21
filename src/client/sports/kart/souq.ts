@@ -9,6 +9,10 @@ import { Track, type TrackDef } from "./track";
 import { canvasTex, crowd, flags, noiseTex, sky, walkers, type Tick } from "./life";
 import { skyline } from "./fun";
 
+// the jump off the roof: a gap in the rooftop road just before it drops to the street (fractions along it)
+const GAP_A = 0.61;
+const GAP_B = 0.72;
+
 export const SOUQ: TrackDef = {
   name: "سوق المباركية",
   edge: "wall",
@@ -23,7 +27,7 @@ export const SOUQ: TrackDef = {
     // «السوق الأبيض»: straight through the shops, narrow, under a low ceiling
     { width: 3.8, from: [80, 0], to: [80, 136], pts: [[82, 0, 40], [80, 0, 70], [78, 0, 100]], aiTake: 0.3 },
     // over the rooftops: up the stair, along the roofs, jump down to the street
-    { width: 4.4, from: [-30, 130], to: [-64, 22], pts: [[-40, 2, 116], [-46, 6, 100], [-50, 6, 82], [-54, 6, 66], [-58, 2.2, 48]], gaps: [[0.58, 0.67]], aiTake: 0.35 },
+    { width: 4.4, from: [-30, 130], to: [-64, 22], pts: [[-36, 0, 118], [-40, 0, 108], [-43, 2, 98], [-47, 4.5, 88], [-50, 6, 74], [-54, 6, 62], [-58, 1.8, 50], [-60, 0, 39]], gaps: [[GAP_A, GAP_B]], aiTake: 0.35 },
   ],
   boosts: [[1, 0.1], [2, 0.18], [0, 0.55]],
 };
@@ -47,6 +51,14 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
   scene.add(sun, sun.target);
   const ticks: Tick[] = [sky(scene, "#5b7fc9", "#ffb88a", SUN_DIR)];
   const main = track.paths[0];
+  const room = (x: number, z: number, except = -1) => {
+    let best = Infinity;
+    track.paths.forEach((p, pi) => {
+      if (pi === except) return;
+      for (let i = 0; i < p.n; i += 2) best = Math.min(best, Math.hypot(p.P[i].x - x, p.P[i].z - z) - p.width);
+    });
+    return best;
+  };
   const covered = (pi: number, i: number) => pi === 0 ? COVERED.some(([a, b]) => i >= a * main.n && i <= b * main.n) : pi === 1;
 
   // ---------------------------------------------------------------- ground: cobbles everywhere, paved lanes
@@ -90,6 +102,8 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
     return new THREE.Vector3(p.P[i].x + n.x * off, p.P[i].y + up, p.P[i].z + n.z * off);
   };
   const under: number[] = [];
+  const underUV: number[] = [];
+  const parapet: number[] = [];
   track.paths.forEach((p, pi) => {
     const W = p.width;
     const last = p.closed ? p.n : p.n - 1;
@@ -102,8 +116,16 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
       const vj = (p.S[i] + p.P[i].distanceTo(p.P[j])) / 4;
       roadUV.push(W / 2, vi, W / 2, vj, 0, vi, W / 2, vj, 0, vj, 0, vi);
       // raised roof runs and the stair: a solid block under them
-      if (p.P[i].y > 0.4)
-        for (const sd of [1, -1]) quad(under, edgeOf(p, i, sd * W, up), edgeOf(p, j, sd * W, up), edgeOf(p, i, sd * W, -p.P[i].y), edgeOf(p, j, sd * W, -p.P[j].y));
+      if (p.P[i].y > 0.4) {
+        const si = p.S[i] / 8;
+        const sj = (p.S[i] + p.P[i].distanceTo(p.P[j])) / 8;
+        for (const sd of [1, -1]) {
+          quad(under, edgeOf(p, i, sd * W, up), edgeOf(p, j, sd * W, up), edgeOf(p, i, sd * W, -p.P[i].y), edgeOf(p, j, sd * W, -p.P[j].y));
+          underUV.push(si, p.P[i].y / 8, sj, p.P[j].y / 8, si, 0, sj, p.P[j].y / 8, sj, 0, si, 0);
+          // a low parapet along the roof edge
+          quad(parapet, edgeOf(p, i, sd * W, up + 0.7), edgeOf(p, j, sd * W, up + 0.7), edgeOf(p, i, sd * W, up), edgeOf(p, j, sd * W, up));
+        }
+      }
     }
   });
   const mkGeo = (pos: number[], uv?: number[]) => {
@@ -116,7 +138,22 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
   const roadMesh = new THREE.Mesh(mkGeo(roadPos, roadUV), new THREE.MeshLambertMaterial({ map: pave, side: THREE.DoubleSide }));
   roadMesh.receiveShadow = true;
   scene.add(roadMesh);
-  scene.add(new THREE.Mesh(mkGeo(under), new THREE.MeshLambertMaterial({ color: 0xd8c3a0, side: THREE.DoubleSide })));
+  // the houses under the rooftop road: beige walls, wooden shutters, a door now and then
+  const houseTex = canvasTex(128, 128, (c) => {
+    c.fillStyle = "#e0cba4";
+    c.fillRect(0, 0, 128, 128);
+    c.fillStyle = "#cdb488";
+    c.fillRect(0, 112, 128, 16);
+    c.fillStyle = "#6a4326";
+    c.fillRect(18, 22, 22, 30);
+    c.fillRect(84, 22, 22, 30);
+    c.fillStyle = "#5a3a22";
+    c.fillRect(52, 66, 24, 46);
+    c.fillStyle = "#3d2414";
+    for (const x of [18, 84]) for (let k = 0; k < 5; k++) c.fillRect(x + 1, 24 + k * 6, 20, 2);
+  }, [1, 1]);
+  scene.add(new THREE.Mesh(mkGeo(under, underUV), new THREE.MeshLambertMaterial({ map: houseTex, side: THREE.DoubleSide })));
+  scene.add(new THREE.Mesh(mkGeo(parapet), new THREE.MeshLambertMaterial({ color: 0xcdb486, side: THREE.DoubleSide })));
 
   // boost pads
   const chevron = canvasTex(128, 128, (c) => {
@@ -243,6 +280,7 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
   const signs: THREE.Matrix4[] = [];
   const shoppers: THREE.Vector3[] = [];
   let bay = 0;
+  const placed: { x: number; z: number }[] = [];
   track.paths.forEach((p, pi) => {
     for (let i = 0; i < p.n; i += 10) {
       if (p.P[i].y > 0.5) continue;
@@ -251,8 +289,12 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
         const off = p.width + 1.6;
         const x = p.P[i].x + n.x * sd * off;
         const z = p.P[i].z + n.z * sd * off;
-        // no shop across another road
-        if (track.onRoad(x, z, 0, pi) || track.onRoad(p.P[i].x + n.x * sd * (p.width + 0.5), p.P[i].z + n.z * sd * (p.width + 0.5), 0, pi)) continue;
+        // no shop across another road (a raised one too), none on top of another shop (inside of a bend)
+        if (room(x, z, pi) < 2 || room(p.P[i].x + n.x * sd * (p.width + 0.5), p.P[i].z + n.z * sd * (p.width + 0.5), pi) < 1) continue;
+        if (placed.some((q) => Math.hypot(q.x - x, q.z - z) < 5.6)) continue;
+        // and not under the raised rooftop road
+        if (room(x, z) < 3 && track.paths.some((q) => q.P.some((v) => v.y > 0.4 && Math.hypot(v.x - x, v.z - z) < q.width + 4))) continue;
+        placed.push({ x, z });
         // facing the road
         const rot = Math.atan2(-n.x * sd, -n.z * sd);
         const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot);
@@ -329,14 +371,24 @@ export function buildSouq(scene: THREE.Scene, track: Track): { tick: Tick; sun: 
   for (let t = 0; t < 2500 && blocks.length < 120; t++) {
     const x = -160 + rnd() * 420;
     const z = -90 + rnd() * 330;
-    const nn = track.nearest(x, z, null);
-    const p = track.paths[nn.path];
-    const d = Math.hypot(p.P[nn.i].x - x, p.P[nn.i].z - z) - p.width;
-    if (d < 9) continue;
     // keep the courtyard by the start open
     if (Math.hypot(x + 20, z - 30) < 32) continue;
     const s = 0.8 + rnd() * 0.7;
-    blocks.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 7 * s, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.round(rnd() * 3) * (Math.PI / 2)), new THREE.Vector3(1 + rnd(), s, 1 + rnd())));
+    const sx = 1 + rnd();
+    const sz = 1 + rnd();
+    const rot = Math.round(rnd() * 3) * (Math.PI / 2);
+    // every part of the footprint (corners, edges, middle) at least a shop's depth behind the road
+    const hx = 7 * sx + 1;
+    const hz = 7 * sz + 1;
+    let ok = room(x, z) > 4 + Math.hypot(hx, hz) * 0.2;
+    for (let u = -1; ok && u <= 1; u += 0.5)
+      for (let v = -1; ok && v <= 1; v += 0.5) {
+        const lx = u * hx;
+        const lz = v * hz;
+        if (room(x + lx * Math.cos(rot) + lz * Math.sin(rot), z - lx * Math.sin(rot) + lz * Math.cos(rot)) < 4) ok = false;
+      }
+    if (!ok) continue;
+    blocks.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 7 * s, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot), new THREE.Vector3(sx, s, sz)));
   }
   const blockTex = canvasTex(128, 128, (c) => {
     c.fillStyle = "#e3d1ae";

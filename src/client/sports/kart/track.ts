@@ -150,6 +150,18 @@ export class Track {
     const s = sample(pts, false);
     p.P = s.P;
     p.T = s.T;
+    // where the shortcut runs alongside or over the main road at about the same level, it takes the main road's
+    // height (fading back to its own over 12 m): otherwise one road surface sticks up through the other and you
+    // drive into it
+    for (const q of p.P) {
+      const j = this.nearestOn(main, q.x, q.z);
+      const my = main.P[j].y;
+      // (a ramp or a bridge well above the main road keeps its height: the pull fades out smoothly by 1.5 m up)
+      const lift = Math.max(0, 1 - Math.abs(q.y - my) / 1.5);
+      const d = Math.hypot(main.P[j].x - q.x, main.P[j].z - q.z) - (main.width + p.width);
+      const w = Math.max(0, Math.min(1, 1 - d / 12)) * lift;
+      q.y += (my - q.y) * w;
+    }
     this.measure(p);
     // progress: straight from the main road's progress where it leaves to where it joins
     const s0 = main.S[a0];

@@ -396,7 +396,7 @@ export function startKartSpike(app: HTMLElement) {
   drawCar();
   // (debug handle for testing the feel from the console)
   (window as unknown as { __kart: unknown }).__kart = {
-    me, karts, LEN, track, camera, solids: () => solids, force: undefined as Input | undefined,
+    me, karts, LEN, track, camera, scene, solids: () => solids, force: undefined as Input | undefined,
     // (testing: the point n samples ahead of a kart on its road, carrying on along the main road after a shortcut)
     ahead: (k: Kart, n: number) => aheadOf(k, n),
   };

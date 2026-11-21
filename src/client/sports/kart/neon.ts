@@ -11,13 +11,13 @@ export const NEON: TrackDef = {
   main: {
     width: 7.5,
     pts: [
-      [0, 0, 0], [50, 0, 0], [95, 0, 10], [128, 0, 38], [152, 4, 72], [160, 9, 115], [138, 13, 158], [92, 13, 175],
+      [0, 0, 0], [50, 0, 0], [95, 0, 10], [128, 0, 38], [141, 0, 54], [154, 4.5, 76], [160, 9, 115], [138, 13, 158], [92, 13, 175],
       [45, 12, 170], [5, 9, 152], [-25, 5, 125], [-45, 1, 92], [-52, 0, 60], [-75, 0, 35], [-100, 0, 10], [-95, 0, -25],
       [-65, 0, -38], [-30, 0, -25],
     ],
   },
   branches: [
-    { width: 4.2, from: [128, 38], to: [92, 175], pts: [[120, 2, 70], [112, 7, 110], [104, 11, 145]], aiTake: 0.3 },
+    { width: 4.2, from: [128, 38], to: [92, 175], pts: [[120, 0, 70], [112, 6, 110], [104, 11, 145]], aiTake: 0.3 },
     { width: 5, from: [-52, 60], to: [-65, -38], pts: [[-50, 0, 40], [-51, 4.2, 20], [-55, 0.4, 2], [-59, 0, -14]], gaps: [[0.45, 0.56]], aiTake: 0.35 },
   ],
   boosts: [[1, 0.12], [2, 0.26], [0, 0.03]],
@@ -133,7 +133,8 @@ export function buildNeon(scene: THREE.Scene, track: Track) {
       const bank = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 200), new THREE.MeshBasicMaterial({ color: CYAN }));
       const h = jump.heading(Math.round((gi + ge) / 2)) + Math.PI / 2;
       bank.rotation.y = h;
-      bank.position.set(mid.x + Math.sin(h + Math.PI / 2) * 13 * s, 0, mid.z + Math.cos(h + Math.PI / 2) * 13 * s);
+      // (its top just under the road where the road crosses it)
+      bank.position.set(mid.x + Math.sin(h + Math.PI / 2) * 13 * s, -0.27, mid.z + Math.cos(h + Math.PI / 2) * 13 * s);
       scene.add(bank);
     }
   }
@@ -156,8 +157,13 @@ export function buildNeon(scene: THREE.Scene, track: Track) {
     const p = track.paths[pi];
     const i = Math.round(f * (p.n - 1));
     const pad = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 4.5), new THREE.MeshBasicMaterial({ map: chevron }));
-    pad.rotation.order = "YXZ";
-    pad.rotation.set(-Math.PI / 2, p.heading(i), 0);
+    // lying on the road, sloped with it (on a ramp too): the chevrons point the way you drive
+    const fwd = p.P[Math.min(p.n - 1, i + 2)].clone().sub(p.P[Math.max(0, i - 2)]).normalize();
+    const side = new THREE.Vector3(fwd.z, 0, -fwd.x).normalize();
+    const up = new THREE.Vector3().crossVectors(fwd, side);
+    if (up.y < 0) up.negate();
+    const Y = fwd.clone().negate();
+    pad.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3().crossVectors(Y, up), Y, up));
     pad.position.set(p.P[i].x, p.P[i].y + 0.1, p.P[i].z);
     scene.add(pad);
   }
