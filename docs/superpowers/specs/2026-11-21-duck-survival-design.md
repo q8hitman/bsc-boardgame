@@ -39,7 +39,7 @@ Status: DRAFT, not approved yet. Written 2026-11-21 when the user's weekly limit
 3. **Turn-based / async.** Each game plays on its own and results are compared. Easy on the server, but loses the live tension.
 
 ## Open questions for the user
-- How many players at once do they expect (20? 50? 100)?
+- Players at once: **up to 20** (user, 2026-11-21). A 20-player room on the free Render server is the target.
 - The names above: ok, or other ideas?
 - What does the winner get (a title on the leaderboard, XP)?
 - Duck doll design: show 2–3 sketches first.
