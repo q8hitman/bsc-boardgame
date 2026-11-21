@@ -32,7 +32,7 @@ Status: DRAFT, not approved yet. Written 2026-11-21 when the user's weekly limit
 - **Tie-breaks:** when too many players are left, or none, add a quick game such as reaction tap, memory, or musical chairs.
 - **Vibe:** the count of players left on a big counter; a prize jar (piggy bank) that fills; dramatic slow music (our own); eliminations shown with a meme (no gore); dorm-hall voting between games (optional).
 
-## Approaches (to choose)
+## Approaches (user chose 1, 2D, on 2026-11-21)
 1. **One server-run show, 2D top-down (Phaser) on every phone, big screen = spectator view.** (Recommended.)
    - Cheapest to run on phones with many players, and one code path for both modes.
 2. **3D like the kart.** Looks bigger, but heavy with 30+ ducks on old phones and a lot more work per game.
